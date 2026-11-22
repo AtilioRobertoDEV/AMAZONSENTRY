@@ -49,8 +49,34 @@ jobs:
           else
             python fires.py history --missing
           fi
-      - run: scripts/data-branch.sh publish "queimadas: $(date -u +%FT%TZ)"
+      - run: scripts/data-branch.sh publish "queimadas $(date -u +%FT%TZ)"
 
   deploy:
     needs: update
-    uses: ./.github/workflows/deploy.yml
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Baixar dados (branch data)
+        run: scripts/data-branch.sh checkout
+      - name: Montar site
+        run: |
+          mkdir -p _site
+          cp -a site/. _site/
+          mkdir -p _site/data
+          # dados gerados (sem o cache interno do pipeline)
+          rsync -a --exclude '.git' --exclude '_cache' --exclude 'README.md' data/ _site/data/
+          du -sh _site _site/data
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
