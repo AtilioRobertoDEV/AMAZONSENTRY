@@ -1,0 +1,59 @@
+name: Dados · desmatamento (GLAD + Hansen)
+
+on:
+  schedule:
+    - cron: "45 9 * * *"    # diário, depois da publicação dos alertas GLAD da América do Sul
+  push:
+    branches: [main]
+    paths: ["pipeline/deforestation.py", "pipeline/common.py"]
+  workflow_dispatch:
+    inputs:
+      alert_years:
+        description: "Anos de alertas GLAD para reprocessar, ex.: 2021 2022 (vazio = ano atual + os que faltam)"
+        required: false
+        default: ""
+      force_loss:
+        description: "Reprocessar a perda anual Hansen mesmo sem versão nova"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: data-branch
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      SENTRY_DATA_DIR: ${{ github.workspace }}/data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: pip install -r pipeline/requirements.txt
+      - run: scripts/data-branch.sh checkout
+      - name: Alertas GLAD-L
+        working-directory: pipeline
+        run: |
+          if [ -n "${{ inputs.alert_years }}" ]; then
+            python deforestation.py alerts --years ${{ inputs.alert_years }}
+          else
+            python deforestation.py alerts --missing
+          fi
+      - name: Perda anual Hansen (só quando sai versão nova)
+        working-directory: pipeline
+        run: python deforestation.py loss ${{ inputs.force_loss && '--force' || '' }}
+      - run: scripts/data-branch.sh publish "desmatamento: $(date -u +%FT%TZ)"
+
+  deploy:
+    needs: update
+    uses: ./.github/workflows/deploy.yml

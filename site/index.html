@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AMAZON SENTRY · Ameaças ambientais no Brasil</title>
+  <meta name="description" content="Mapa interativo de queimadas, desmatamento e garimpo no Brasil: ao vivo, semana, mês, ano e série histórica.">
+  <link rel="stylesheet" href="vendor/maplibre-gl.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="map" aria-label="Mapa do Brasil"></div>
+
+  <aside id="panel">
+    <header>
+      <h1>AMAZON <span>SENTRY</span></h1>
+      <p class="sub">Queimadas, desmatamento e garimpo no Brasil</p>
+    </header>
+
+    <section>
+      <h2>Período</h2>
+      <div id="modes" class="seg" role="tablist">
+        <button data-mode="live" class="on" title="Últimas 24 horas de dados">Ao vivo</button>
+        <button data-mode="week" title="Últimos 7 dias">Semana</button>
+        <button data-mode="month" title="Últimos 30 dias">Mês</button>
+        <button data-mode="year" title="Ano corrente">Ano</button>
+        <button data-mode="history" title="Série histórica, ano a ano">Histórico</button>
+      </div>
+      <p id="window-label" class="muted"></p>
+    </section>
+
+    <section>
+      <h2>Camadas</h2>
+      <ul id="layers">
+        <li data-layer="fires">
+          <label><input type="checkbox" checked> <i class="sw fires"></i> Queimadas</label>
+          <div class="stat"><b data-total>–</b> <small data-note></small></div>
+        </li>
+        <li data-layer="deforestation">
+          <label><input type="checkbox" checked> <i class="sw deforestation"></i> Desmatamento</label>
+          <div class="stat"><b data-total>–</b> <small data-note></small></div>
+        </li>
+        <li data-layer="mining">
+          <label><input type="checkbox" checked> <i class="sw mining"></i> Garimpo</label>
+          <div class="stat"><b data-total>–</b> <small data-note></small></div>
+        </li>
+      </ul>
+      <label class="opt" id="cumulative-opt" hidden><input type="checkbox" id="cumulative"> Acumulado até o ano escolhido (desmatamento e garimpo)</label>
+    </section>
+
+    <section>
+      <h2>Fundo do mapa</h2>
+      <div id="basemaps" class="seg small">
+        <button data-base="dark" class="on">Escuro</button>
+        <button data-base="sat">Satélite</button>
+        <button data-base="s2" title="Mosaico Sentinel-2 sem nuvens do ano escolhido (EOX, 2016+)">Imagem do ano</button>
+      </div>
+      <p id="base-note" class="muted"></p>
+    </section>
+
+    <section id="charts-sec">
+      <h2>Série anual <small class="muted">(clique num ano)</small></h2>
+      <div id="charts"></div>
+    </section>
+
+    <footer>
+      <p id="updated" class="muted">Carregando dados…</p>
+      <details>
+        <summary>Fontes e limitações</summary>
+        <ul class="sources">
+          <li><b>Queimadas:</b> NASA FIRMS (VIIRS NOAA-20/21, S-NPP e MODIS). Focos de calor detectados por satélite, atualizados a cada 3 horas.</li>
+          <li><b>Desmatamento:</b> alertas GLAD-L (Landsat, Univ. de Maryland, atualização diária) e perda anual de floresta Hansen/UMD Global Forest Change (2001+, cobertura arbórea ≥ 30%).</li>
+          <li><b>Garimpo:</b> Amazon Mining Watch (Earth Genome, Pulitzer Center e Amazon Conservation), bacia amazônica, 2018+. CC BY 4.0.</li>
+          <li><b>Imagens:</b> Esri World Imagery; Sentinel-2 cloudless © EOX (2016+).</li>
+          <li>Satélite detecta a perda de floresta e o garimpo, não a legalidade. Para dizer que algo é ilegal é preciso cruzar com autorizações, terras indígenas e unidades de conservação.</li>
+          <li>Todos os dados ficam copiados neste site; o mapa não consulta as fontes na hora da visita.</li>
+        </ul>
+      </details>
+    </footer>
+  </aside>
+
+  <div id="timeline" hidden>
+    <button id="play" title="Reproduzir a série">▶</button>
+    <input id="year" type="range" min="1985" max="2026" step="1" value="2026" aria-label="Ano">
+    <output id="year-label">2026</output>
+  </div>
+
+  <div id="loading" hidden>carregando…</div>
+
+  <script src="vendor/maplibre-gl.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
