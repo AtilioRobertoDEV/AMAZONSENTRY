@@ -67,7 +67,8 @@ function cellsInWindow(doc, layer, a, b) {
   }
   const vals = [...out.values()];
   const ref = percentile(vals.map((c) => c.v), 0.97) || 1;
-  const features = vals.map((c) => ({
+  // células muito fracas viram ruído visual: ficam fora do desenho (mas entram no total)
+  const features = vals.filter((c) => c.v >= ref * 0.04).map((c) => ({
     type: 'Feature',
     geometry: { type: 'Point', coordinates: [ox + (c.x + 0.5) * cs, oy + (c.y + 0.5) * cs] },
     properties: { layer, v: c.v, w: Math.min(1, c.v / ref), cs, unit: doc.value },
@@ -139,7 +140,7 @@ function addDataLayers() {
       paint: {
         'circle-color': color,
         'circle-radius': cellRadius(),
-        'circle-opacity': ['case', ['==', ['get', 'cs'], 0], 0.9, ['+', 0.35, ['*', 0.6, ['get', 'w']]]],
+        'circle-opacity': ['case', ['==', ['get', 'cs'], 0], 0.9, ['+', 0.12, ['*', 0.8, ['get', 'w']]]],
         'circle-blur': ['case', ['==', ['get', 'cs'], 0], 0.15, 0.35],
         'circle-stroke-width': l === 'mining' ? 0.8 : 0,
         'circle-stroke-color': '#000',
