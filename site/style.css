@@ -1,0 +1,79 @@
+:root {
+  --bg: #0e1116;
+  --panel: rgba(16, 20, 27, .92);
+  --line: #2a313c;
+  --text: #e6e9ee;
+  --muted: #8b95a5;
+  --fires: #ff5a1f;
+  --deforestation: #e8368f;
+  --mining: #f5c518;
+  --accent: #3ddc97;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#map { position: absolute; inset: 0; }
+
+#panel { position: absolute; top: 12px; left: 12px; width: 320px; max-height: calc(100% - 24px);
+  overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px; backdrop-filter: blur(6px); z-index: 2; }
+#panel header h1 { margin: 0; font-size: 20px; letter-spacing: .08em; }
+#panel header h1 span { color: var(--accent); }
+.sub { margin: 2px 0 6px; color: var(--muted); }
+section { border-top: 1px solid var(--line); padding: 10px 0 4px; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+.muted { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button { flex: 1 1 auto; background: #1b212b; color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; cursor: pointer; font: inherit; font-size: 13px; }
+.seg button:hover { border-color: #46505f; }
+.seg button.on { background: var(--accent); color: #062014; border-color: var(--accent); font-weight: 600; }
+.seg.small button { font-size: 12px; padding: 5px 6px; }
+
+#layers { list-style: none; margin: 0; padding: 0; }
+#layers li { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; gap: 8px; }
+#layers label { cursor: pointer; white-space: nowrap; }
+#layers .stat { text-align: right; }
+#layers .stat b { font-variant-numeric: tabular-nums; }
+#layers .stat small { display: block; color: var(--muted); font-size: 11px; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px 0 2px; vertical-align: 0; }
+.sw.fires { background: var(--fires); }
+.sw.deforestation { background: var(--deforestation); }
+.sw.mining { background: var(--mining); border-radius: 2px; }
+.opt { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; cursor: pointer; }
+
+#charts .chart { margin-bottom: 8px; }
+#charts .chart .ttl { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--muted); }
+#charts svg { width: 100%; height: 38px; display: block; }
+#charts rect { cursor: pointer; }
+#charts rect.sel { stroke: #fff; stroke-width: 1; }
+
+footer { border-top: 1px solid var(--line); padding-top: 8px; }
+footer details { font-size: 12px; color: var(--muted); }
+footer summary { cursor: pointer; }
+.sources { padding-left: 16px; margin: 6px 0; }
+.sources li { margin-bottom: 4px; }
+
+#timeline { position: absolute; left: 50%; transform: translateX(-50%); bottom: 28px; z-index: 2;
+  display: flex; align-items: center; gap: 12px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 16px; width: min(640px, calc(100% - 370px)); }
+#timeline input { flex: 1; accent-color: var(--accent); }
+#timeline output { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 56px; text-align: right; }
+#play { background: var(--accent); color: #062014; border: 0; border-radius: 50%; width: 34px; height: 34px;
+  font-size: 14px; cursor: pointer; }
+
+#loading { position: absolute; top: 14px; right: 60px; z-index: 3; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; font-size: 12px; color: var(--muted); }
+
+.maplibregl-popup-content { background: #151a22; color: var(--text); border: 1px solid var(--line); font-size: 13px; }
+.maplibregl-popup-tip { border-top-color: #151a22 !important; border-bottom-color: #151a22 !important; }
+.maplibregl-popup-close-button { color: var(--muted); }
+.maplibregl-ctrl-attrib { background: rgba(14,17,22,.75) !important; color: var(--muted); }
+.maplibregl-ctrl-attrib a { color: #aab3c2; }
+
+@media (max-width: 760px) {
+  #panel { width: auto; right: 12px; max-height: 46%; }
+  #timeline { width: calc(100% - 24px); bottom: 34px; }
+}
