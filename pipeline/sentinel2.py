@@ -188,8 +188,15 @@ def scene_ndvi(pre, x0, y1, max_bad=0.15, core=None):
     r = read_band(pre, "B04", x0, y1).astype("f4")
     n = read_band(pre, "B08", x0, y1).astype("f4")
     v = (n - r) / np.maximum(n + r, 1)
-    v[bad | (n + r == 0)] = np.nan
-    return v, scl == WATER
+    # água, inclusive rio barrento que a SCL não marca: MNDWI (verde x infravermelho
+    # de ondas curtas) positivo. Rio tem margem verde dos dois lados e parece pista
+    # para o filtro de linha, então a água sai da imagem antes da busca.
+    g = read_band(pre, "B03", x0, y1).astype("f4")
+    sw = read_band(pre, "B11", x0, y1).astype("f4")
+    water = (scl == WATER) | (((g - sw) / np.maximum(g + sw, 1)) > 0.05)
+    water = ndi.binary_dilation(water, iterations=1)
+    v[bad | (n + r == 0) | water] = np.nan
+    return v, water
 
 
 # ------------------------------------------------------------------ geometria do filtro
@@ -209,15 +216,17 @@ def _contrast(m, hw, s0, s1):
     return np.minimum(np.roll(sb, off, 0), np.roll(sb, -off, 0)) - c
 
 
-def line_response(v, search=None):
-    """Melhor faixa reta: (contraste, ângulo, linha, coluna, escala) no espaço girado."""
+def line_response(v, search=None, angles=None):
+    """Melhor faixa reta: (contraste, ângulo, linha, coluna, escala) no espaço girado.
+
+    `angles` limita os ângulos testados (rumo já conhecido da pista)."""
     fill = np.nanmedian(v)
     vf = np.where(np.isnan(v), fill, v)
     h, w = vf.shape
     cy, cx = h // 2, w // 2
     r = search or (h // 2 - 12)
     best = (-9.0, 0, 0, 0, 0)
-    for th in range(0, 180, STEP):
+    for th in (angles if angles is not None else range(0, 180, STEP)):
         m = ndi.uniform_filter1d(_rot(vf, th), L_PX, axis=1)
         for k, sc in enumerate(SCALES):
             con = _contrast(m, *sc)
@@ -262,6 +271,38 @@ def unrotate(th, y, x, n=N):
     t = np.radians(th)
     dx, dy = x - c, y - c
     return c + dx * np.cos(t) - dy * np.sin(t), c + dx * np.sin(t) + dy * np.cos(t)
+
+
+def fit_axis(v, pa, pb, dth=4, dy=4):
+    """Eixo já conhecido (cabeceiras pa, pb em coluna/linha da janela, desenhadas por
+    alguém no OSM ou no OurAirports). Ajuste fino de ±dth° e ±dy px, porque o desenho
+    e a imagem nunca batem perfeito, e a escala de largura com mais contraste.
+    Devolve (contraste mediano, ângulo, linha, a, b, escala) no espaço girado."""
+    fill = np.nanmedian(v)
+    vf = np.where(np.isnan(v), fill, v)
+    c0 = (N - 1) / 2
+    hd = np.degrees(np.arctan2(pb[1] - pa[1], pb[0] - pa[0])) % 180
+    best = None
+    for th in hd + np.arange(-dth, dth + 1):
+        t = np.radians(th)
+
+        def fwd(p):
+            ddx, ddy = p[0] - c0, p[1] - c0
+            return c0 + ddx * np.cos(t) + ddy * np.sin(t), c0 - ddx * np.sin(t) + ddy * np.cos(t)
+        (xa, ya), (xb, yb) = fwd(pa), fwd(pb)
+        y = int(round((ya + yb) / 2))
+        a, b = sorted((int(round(xa)), int(round(xb))))
+        a, b = max(a, 0), min(b, N - 1)
+        if b - a < 10 or not (12 <= y < N - 12):
+            continue
+        m = ndi.uniform_filter1d(_rot(vf, th), 5, axis=1)
+        for k, sc in enumerate(SCALES):
+            con = _contrast(m, *sc)
+            for yy in range(y - dy, y + dy + 1):
+                val = float(np.median(con[yy, a:b + 1]))
+                if best is None or val > best[0]:
+                    best = (val, float(th), yy, a, b, k)
+    return best
 
 
 def end_branches(v, th, y, a, b, open_below, r0=8, r1=20):

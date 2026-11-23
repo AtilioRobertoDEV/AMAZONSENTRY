@@ -27,6 +27,8 @@
   --clarao: #fff3df;       /* foco novo, previsão */
   --pista: #ff5fa2;        /* pista de pouso sem registro */
   --pista-tinta: #a3195b;
+  --aldeia: #8a5fd6;        /* pista de aldeia (no painel; no mapa, #c4a3ff) */
+  --cidade: #3f86b8;        /* pista de cidade ou vila (no mapa, #8cc3ea) */
   --rail: 384px;
   --ease: cubic-bezier(.2, .7, .2, 1);
 }
@@ -411,6 +413,27 @@ body.tl-on #timeline { display: none; }
 #air-key [data-st="4"] i { background: var(--clarao); box-shadow: 0 0 0 1px var(--pista-tinta); }
 #air-key [data-st="2"] i { opacity: .5; }
 #air-key [data-st="3"] i { height: 2.5px; background: repeating-linear-gradient(90deg, var(--pista-tinta) 0 3px, transparent 3px 6px); }
+
+/* tipos de pista: botões que ligam e desligam cada tipo no mapa */
+#air-types {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 8px 0 0 30px; font-size: 12px;
+}
+#air-types[hidden] { display: none; }
+#air-types button {
+  appearance: none; display: flex; align-items: center; gap: 7px; padding: 4px 6px; cursor: pointer;
+  background: none; border: 1px solid var(--regua); color: var(--tinta-2); font: inherit; text-align: left;
+}
+#air-types button b { margin-left: auto; color: var(--tinta); font-weight: 650; }
+#air-types button i { flex: none; width: 14px; height: 4px; transform: rotate(-32deg); background: var(--pista); }
+#air-types [data-type="1"] i { background: var(--aldeia); }
+#air-types [data-type="2"] i { background: var(--cidade); }
+#air-types [data-type="reg"] i { height: 2px; background: var(--tinta); }
+#air-types button[aria-pressed="true"] { border-color: var(--tinta); color: var(--tinta); background: rgba(42, 30, 18, .07); }
+#air-types button[aria-pressed="false"] i { opacity: .35; }
+#air-types button:hover { background: rgba(42, 30, 18, .1); }
+#air-types button:focus-visible { outline: 2px solid var(--tinta); outline-offset: 1px; }
+#air-types button:disabled { opacity: .4; cursor: not-allowed; }
+.air-reg { margin: 8px 0; font-weight: 650; }
 
 /* popup da pista: quanto dela estava limpa em cada ano */
 .air-now { margin: 8px 0 2px; font-weight: 650; }

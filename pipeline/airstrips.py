@@ -41,17 +41,22 @@ import common as C  # noqa: E402
 import sentinel2 as S2  # noqa: E402
 
 VERSION = "v2"          # varredura em volta dos garimpos
-RESULTS_VERSION = "v3"  # checagem ano a ano (v3: estrada/rio no detector)
+RESULTS_VERSION = "v4"  # checagem ano a ano (v4: água por MNDWI, rumo conhecido)
 OUT = C.DATA_DIR / "airstrips"
 CACHE = C.DATA_DIR / "_cache" / "airstrips"
 LEGAL = {"AC", "AM", "AP", "PA", "RO", "RR", "TO", "MT", "MA"}
 ANAC_CODE = re.compile(r"^S[A-Z][A-Z0-9]{2}$")
-# Pistas de cidade, vila ou aldeia: muitas estão sem registro na ANAC, mas são de uso público
-# e não são o que a camada procura. Entram como referência (tiram as candidatas por perto).
+# Pistas de cidade, vila ou aldeia: muitas estão sem registro na ANAC, mas são de uso público.
+# Ficam na camada, em categorias à parte da "sem registro (suspeita)".
 PRIVATE = re.compile(r"(?i)\b(fazendas?|faz\.?|agro\w*|est[aâ]ncia|s[ií]tio|ch[aá]cara|ltda|s/?a\b|grupo|usina|"
                      r"minera[cç][aã]o|garimpos?|madeireira|pecu[aá]ria|rancho?|serraria|empresa|haras|agr[ií]cola)")
 PUBLIC = re.compile(r"(?i)^(aeroporto|aer[oó]dromo)\s+(municipal|regional|estadual|internacional|p[uú]blic[oa]|"
-                    r"de|do|da|dos|das)\b|\baldeia\b|\bmiss[aã]o\b|\bterra ind[ií]gena\b")
+                    r"de|do|da|dos|das)\b")
+VILLAGE = re.compile(r"(?i)\baldeia\b|\bmiss[aã]o\b|\bterra ind[ií]gena\b|\bind[ií]gena\b|\bp[oó]lo base\b|"
+                     r"\bposto ind|\bposto ind[ií]gena\b|\bPIN\b|\bDSEI\b|\bsesai\b|\bfunai\b")
+CATS = {None: 0, "aldeia": 1, "cidade": 2}
+UF_NAMES = {"acre": "AC", "amazonas": "AM", "amapa": "AP", "para": "PA", "rondonia": "RO", "roraima": "RR",
+            "tocantins": "TO", "mato grosso": "MT", "maranhao": "MA"}
 
 
 def _fold(s: str) -> str:
@@ -62,8 +67,18 @@ def _fold(s: str) -> str:
 TOWNS: set = set()  # nomes de município (sem acento) vistos no OurAirports
 
 
+def public_kind(name: str, town: str = "") -> str | None:
+    """'aldeia' (aldeia, missão, polo base), 'cidade' ('Aeroporto de Pauini', 'Jaru Airport') ou None."""
+    n = (name or "").strip()
+    if not n:
+        return None
+    if VILLAGE.search(n):
+        return "aldeia"
+    return "cidade" if is_public(n, town) else None
+
+
 def is_public(name: str, town: str = "") -> bool:
-    """Nome de pista municipal/comunitária ('Aeroporto de Pauini', 'Jaru Airport', 'Aldeia ...')."""
+    """Nome de pista de cidade ou vila ('Aeroporto de Pauini', 'Jaru Airport')."""
     n = (name or "").strip()
     if not n or PRIVATE.search(n):
         return False
@@ -91,6 +106,7 @@ OPEN_T = 0.12       # contraste mínimo (lados - eixo) para o pixel do eixo cont
 MIN_SCORE = 0.27    # contraste mínimo da faixa no melhor ano para confirmar a pista
 MIN_SIDE = 0.45     # NDVI mínimo das laterais no melhor ano (vegetação dos dois lados)
 MIN_LEN, MAX_LEN = 300, 2600
+KNOWN_MIN = 0.06   # contraste mínimo no eixo desenhado para a pista aparecer na imagem
 
 
 # ------------------------------------------------------------------ área
@@ -155,17 +171,24 @@ def from_ourairports():
         codes = [r["ident"], r["gps_code"], r["icao_code"]]
         registered = any(ANAC_CODE.match(c or "") for c in codes) or bool(r["local_code"].strip())
         registered = registered or bool(r.get("iata_code", "").strip()) or r.get("scheduled_service") == "yes" \
-            or r["type"] in ("medium_airport", "large_airport") or is_public(r["name"], r.get("municipality", ""))
+            or r["type"] in ("medium_airport", "large_airport")
+        kind = public_kind(r["name"], r.get("municipality", ""))
         if r["type"] == "heliport":
             continue
-        if registered:  # fechada mas já foi oficial/pública: não é suspeita
+        if registered:  # fechada mas já foi oficial: não é suspeita
             if r["type"] != "closed":
                 reg.append((lon, lat))
+        elif kind and r["type"] == "closed":
+            continue
         elif r["type"] in ("small_airport", "closed"):
-            cands.append({"lon": lon, "lat": lat, "src": "ourairports", "name": r["name"],
+            cands.append({"lon": lon, "lat": lat, "src": "ourairports", "name": r["name"], "cat": kind,
                           "ends": runways.get(r["ident"]), "closed": r["type"] == "closed"})
     print(f"  OurAirports: {len(cands)} candidatas, {len(reg)} registradas")
     return cands, reg
+
+
+RUNWAYS: list = []      # (lon, lat, cabeceiras) de toda pista desenhada no OSM
+REGISTERED: list = []   # aeródromos da ANAC na região, para a categoria "registrada"
 
 
 def from_osm():
@@ -197,7 +220,7 @@ out tags geom;"""
         t = el.get("tags", {})
         codes = [t.get("icao", ""), t.get("ref", ""), t.get("gps_code", "")]
         registered = any(ANAC_CODE.match(c.strip().upper()) for c in codes if c)
-        registered = registered or bool(t.get("iata")) or is_public(t.get("name", ""), t.get("addr:city", "")) \
+        registered = registered or bool(t.get("iata")) \
             or t.get("aerodrome:type") in ("public", "regional", "international", "military")
         if t.get("aeroway") == "runway" and el.get("geometry"):
             g = el["geometry"]
@@ -211,10 +234,13 @@ out tags geom;"""
             lon, lat, ends = c["lon"], c["lat"], None
         if t.get("aeroway") not in ("runway",) and t.get("surface") in ("water",):
             continue
+        if ends:
+            RUNWAYS.append((lon, lat, ends))
         if registered:
             reg.append((lon, lat))
         else:
             cands.append({"lon": lon, "lat": lat, "src": "osm", "name": t.get("name", ""), "ends": ends,
+                          "cat": public_kind(t.get("name", ""), t.get("addr:city", "")),
                           "closed": t.get("disused") == "yes" or "abandoned:aeroway" in t})
     print(f"  OSM: {len(cands)} candidatas, {len(reg)} registradas")
     return cands, reg
@@ -273,6 +299,8 @@ def from_anac():
         head = [x.strip().upper() for x in next(rows)]
         ila = next(k for k, x in enumerate(head) if x.startswith("LATITUDE"))
         ilo = next(k for k, x in enumerate(head) if x.startswith("LONGITUDE"))
+        col = lambda pre: next((k for k, x in enumerate(head) if x.startswith(pre)), None)  # noqa: E731
+        inome, icod, iciad, imun, iuf = col("NOME"), col("CÓDIGO"), col("CIAD"), col("MUNIC"), col("UF")
         for row in rows:
             if len(row) <= max(ila, ilo):
                 continue
@@ -283,6 +311,12 @@ def from_anac():
                 lo = -lo      # Brasil: longitude sempre oeste
             if BBOX[0] <= lo <= BBOX[2] and BBOX[1] <= la <= BBOX[3]:
                 reg.append((lo, la))
+                get = lambda k: (row[k].strip() if k is not None and k < len(row) else "")  # noqa: E731
+                nome = get(inome)
+                if re.search(r"(?i)helipont|heliporto", nome):
+                    continue
+                REGISTERED.append({"lon": lo, "lat": la, "pub": i == 0, "name": nome,
+                                   "code": get(icod) or get(iciad), "town": get(imun).title(), "uf": get(iuf)})
     print(f"  ANAC: {len(reg)} aeródromos registrados na região")
     return [], reg
 
@@ -370,6 +404,8 @@ def merge(cands, reg, radius_m=900, reg_m=1500):
         c["srcs"] = sorted({cands[j]["src"] for j in group})
         c["names"] = sorted({cands[j]["name"] for j in group if cands[j]["name"]})[:2]
         c["closed"] = any(cands[j]["closed"] for j in group)
+        cats = {cands[j].get("cat") for j in group}
+        c["cat"] = "aldeia" if "aldeia" in cats else "cidade" if "cidade" in cats else None
         out.append(c)
     if reg:
         rxy = np.array([(a * 111.32 * k * 1000, b * 110.57 * 1000) for a, b in reg])
@@ -465,26 +501,40 @@ def analyze(c, years):
                 imgs[y] = r
 
     resp = {}
+    # pista já desenhada (OSM) ou com cabeceiras (OurAirports): o eixo é esse, com um
+    # ajuste fino. A imagem só serve para datar e ver a situação. Sem isso, o filtro
+    # procura a faixa reta mais forte perto do ponto (e às vezes pega rio ou estrada).
+    known = None
+    if c.get("ends"):
+        (lo1, la1), (lo2, la2) = c["ends"]
+        _, xa, ya = S2.utm_xy(tile, lo1, la1)
+        _, xb, yb = S2.utm_xy(tile, lo2, la2)
+        if 200 <= np.hypot(xb - xa, yb - ya) <= 3500:
+            known = (((xa - x0) / S2.PX - .5, (y1 - ya) / S2.PX - .5),
+                     ((xb - x0) / S2.PX - .5, (y1 - yb) / S2.PX - .5))
+    floor = KNOWN_MIN if known else MIN_SCORE * 0.8
 
     def best_of():
         best = None
         for y, (v, water, date) in imgs.items():
             if y not in resp:
-                resp[y] = S2.line_response(v, search=50)
+                resp[y] = S2.fit_axis(v, *known) if known else S2.line_response(v, search=50)
             r = resp[y]
-            if best is None or r[0] > best[0][0]:
+            if r is not None and (best is None or r[0] > best[0][0]):
                 best = (r, y)
         return best
 
     res = {"tile": tile, "checked": dt.date.today().isoformat()}
+    if known:
+        res["axis"] = "conhecido"
     # primeiro uns poucos anos espalhados: se não houver pista em nenhum, para aqui
     probe = [y for y in (years[-1], years[-2], years[-4], years[2]) if y in years]
     load(probe)
     best = best_of()
-    if best is None or best[0][0] < MIN_SCORE * 0.8:
+    if best is None or best[0][0] < floor:
         load([y for y in years if y not in probe][-3:])
         best = best_of()
-    if best is None or best[0][0] < MIN_SCORE * 0.8:
+    if best is None or best[0][0] < floor:
         res["status"] = "sem confirmação"
         res["why"] = "sem imagem boa" if best is None else "fraca"
         res["skipped"] = sorted(skipped)
@@ -504,9 +554,13 @@ def analyze(c, years):
         res["status"] = "sem confirmação"
         res["why"] = "sem imagem boa"
         return res
-    (score, th, ry, rx, k), yref = best
-    con, cen, side = S2.axis_profile(imgs[yref][0], th, ry, k)
-    a, b = S2.extent(con, rx, OPEN_T)
+    if known:
+        (score, th, ry, a, b, k), yref = best
+        con, cen, side = S2.axis_profile(imgs[yref][0], th, ry, k)
+    else:
+        (score, th, ry, rx, k), yref = best
+        con, cen, side = S2.axis_profile(imgs[yref][0], th, ry, k)
+        a, b = S2.extent(con, rx, OPEN_T)
     length = (b - a + 1) * S2.PX
     (ax_, ay_), (bx_, by_) = S2.unrotate(th, ry, a), S2.unrotate(th, ry, b)
     # pixel -> UTM -> lon/lat
@@ -522,6 +576,8 @@ def analyze(c, years):
     side_ndvi = float(np.median(side[a:b + 1]))
     res["side"] = round(side_ndvi, 2)
     ok = side_ndvi >= MIN_SIDE and score >= MIN_SCORE and MIN_LEN <= length <= MAX_LEN and wat < 0.3 and r_edge < S2.N / 2 - 4
+    if known:
+        ok = wat < 0.3   # o desenho já diz que é pista; só não pode ser rio
     if not ok:
         res["status"] = "sem confirmação"
         res["why"] = ("água" if wat >= 0.3 else "fraca" if score < MIN_SCORE else "sem vegetação em volta" if side_ndvi < MIN_SIDE else
@@ -787,6 +843,94 @@ def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
     write_output(sites, items, this_year)
 
 
+FUNAI_TI = ("https://geoserver.funai.gov.br/geoserver/Funai/ows?service=WFS&version=1.0.0&request=GetFeature"
+            "&typeName=Funai%3Atis_poligonais&outputFormat=application%2Fjson")
+
+
+def indigenous_lands():
+    """Terras indígenas (FUNAI), simplificadas e guardadas em cache. Só contexto no popup:
+    pista dentro de TI não vira 'aldeia' por isso (garimpo em TI também tem pista)."""
+    from shapely.geometry import shape
+    cache = CACHE / "ti.json"
+    doc = None
+    try:
+        import requests
+        r = requests.get(FUNAI_TI, timeout=600, headers=C.UA)
+        r.raise_for_status()
+        raw = r.json()
+        feats = []
+        for f in raw.get("features", []):
+            p = f.get("properties") or {}
+            name = next((p[k] for k in ("terrai_nom", "terra_indigena", "nome", "ti_nome") if p.get(k)), "")
+            try:
+                g = shape(f["geometry"]).simplify(0.002, preserve_topology=True)
+            except Exception:  # noqa: BLE001
+                continue
+            if g.is_empty:
+                continue
+            b = g.bounds
+            if b[2] < BBOX[0] or b[0] > BBOX[2] or b[3] < BBOX[1] or b[1] > BBOX[3]:
+                continue
+            feats.append({"name": str(name).strip(), "geometry": g.__geo_interface__})
+        if feats:
+            doc = {"checked": dt.date.today().isoformat(), "features": feats}
+            C.write_json(cache, doc)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! FUNAI terras indígenas: {e}")
+    if doc is None:
+        doc = C.read_json(cache) if cache.exists() else None
+        if doc:
+            print("  Terras indígenas: usando o cache")
+    if not doc:
+        return None
+    print(f"  Terras indígenas: {len(doc['features'])}")
+    return [(f["name"], shape(f["geometry"])) for f in doc["features"]]
+
+
+def ti_names(lons, lats, lands):
+    if not lands:
+        return [""] * len(lons)
+    from shapely import STRtree
+    from shapely.geometry import Point
+    geoms = [g for _, g in lands]
+    tree = STRtree(geoms)
+    out = []
+    for lo, la in zip(lons, lats):
+        pt = Point(lo, la)
+        hit = [i for i in tree.query(pt) if geoms[i].contains(pt)]
+        out.append(lands[hit[0]][0].title()[:50] if hit else "")
+    return out
+
+
+def registered_rows():
+    """Aeródromos da ANAC na Amazônia Legal, com o traçado do OSM quando há pista desenhada perto."""
+    from scipy.spatial import cKDTree
+    regs = [r for r in REGISTERED if in_legal([r["lon"]], [r["lat"]])[0]]
+    if not regs:
+        return []
+    k = np.cos(np.radians(-5))
+    xy = lambda lo, la: (lo * 111.32 * k * 1000, la * 110.57 * 1000)  # noqa: E731
+    tree = cKDTree(np.array([xy(lo, la) for lo, la, _ in RUNWAYS])) if RUNWAYS else None
+    out, seen = [], set()
+    for r in regs:
+        key = (round(r["lon"], 3), round(r["lat"], 3))
+        if key in seen:
+            continue
+        seen.add(key)
+        ends = None
+        if tree is not None:
+            d, j = tree.query(xy(r["lon"], r["lat"]))
+            if d <= 1500:
+                ends = RUNWAYS[j][2]
+        e = [round(v, 5) for p in ends for v in p] if ends else [None] * 4
+        uf = r["uf"].strip()
+        uf = uf.upper() if len(uf) == 2 else UF_NAMES.get(_fold(uf), "")
+        place = f"{r['town']}/{uf}" if r["town"] and uf else r["town"]
+        out.append([round(r["lon"], 5), round(r["lat"], 5), *e, 1 if r["pub"] else 0,
+                    r["name"][:60], r["code"][:8], place[:40]])
+    return out
+
+
 def write_output(sites, items, this_year):
     mp = mining_points()
     rows = []
@@ -805,8 +949,10 @@ def write_output(sites, items, this_year):
     lon = [((r["ends"][0][0] + r["ends"][1][0]) / 2) for c, r in rows]
     lat = [((r["ends"][0][1] + r["ends"][1][1]) / 2) for c, r in rows]
     dist = nearest_km(lon, lat, mp)
+    lands = indigenous_lands()
+    tis = ti_names(lon, lat, lands)
     data = []
-    for (c, r), x, y, km in zip(rows, lon, lat, dist):
+    for (c, r), x, y, km, ti in zip(rows, lon, lat, dist, tis):
         ser = r.get("series", {})
         yrs = range(S2.FIRST_YEAR, this_year + 1)
         # 0-9 = fração da pista aberta naquele ano; "-" = imagem ruim, ano ignorado
@@ -818,27 +964,36 @@ def write_output(sites, items, this_year):
             round(x, 5), round(y, 5),
             r["ends"][0][0], r["ends"][0][1], r["ends"][1][0], r["ends"][1][1],
             r["length"], born[0], born[1], STATUS[r["status"]], r.get("last"), r.get("closed_since"),
-            km, src, s, (c["names"][0] if c.get("names") else "")[:60],
+            km, src, s, (c["names"][0] if c.get("names") else "")[:60], CATS[c.get("cat")], ti,
         ])
     by_year = {}
     for row in data:
-        if row[8]:
+        if row[8] and row[16] == 0:
             by_year[row[8]] = by_year.get(row[8], 0) + 1
+    cats = {k: sum(1 for row in data if row[16] == v) for k, v in (("sem registro", 0), ("aldeia", 1), ("cidade", 2))}
+    reg = registered_rows()
+    cats["registrada"] = len(reg)
+    cats["em terra indígena"] = sum(1 for row in data if row[17] and row[16] == 0)
     C.write_json(OUT / "airstrips.json", {
         "v": 1,
         "layer": "airstrips",
         "kind": "pistas de pouso sem registro encontrado (suspeitas), conferidas no Sentinel-2",
         "source": "OpenStreetMap (ODbL), OurAirports (domínio público), MapBiomas; imagens Copernicus Sentinel-2 L2A; "
-                  "perda de floresta Hansen/UMD; garimpo Amazon Mining Watch",
+                  "perda de floresta Hansen/UMD; garimpo Amazon Mining Watch; cadastro de aeródromos ANAC; terras indígenas FUNAI",
         "first_year": S2.FIRST_YEAR,
         "fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "comprimento_m", "surgiu_depois_de", "surgiu_ate",
                    "situacao(1 ativa,2 perdendo uso,3 abandonada,4 reaberta)", "ultimo_ano_visto", "fechada_desde",
-                   "garimpo_km", "fontes(1 osm,2 ourairports,4 mapbiomas,8 detector)", "aberta_por_ano", "nome"],
+                   "garimpo_km", "fontes(1 osm,2 ourairports,4 mapbiomas,8 detector)", "aberta_por_ano", "nome",
+                   "categoria(0 sem registro,1 aldeia,2 cidade ou vila)", "terra_indigena"],
+        "reg_fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "publico", "nome", "codigo", "municipio_uf"],
         "counts": counts,
+        "cats": cats,
         "updated": C.now_iso(),
         "data": data,
+        "reg": reg,
     })
-    C.update_manifest("airstrips", {"count": len(data), "updated": C.now_iso(), "counts": counts,
+    C.update_manifest("airstrips", {"count": cats["sem registro"], "updated": C.now_iso(), "counts": counts,
+                                    "cats": cats,
                                     "years": sorted(by_year)})
     C.update_stats("airstrips", "novas_por_ano", by_year)
 

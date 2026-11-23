@@ -11,7 +11,11 @@ const DATA = 'data/';
 const DAY_MS = 86400000;
 const NOW_YEAR = new Date().getUTCFullYear();
 const LAYERS = ['deforestation', 'mining'];   // ordem de desenho
-const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', airstrips: '#ff5fa2', clarao: '#fff3df', negro: '#1b140f' };
+const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', airstrips: '#ff5fa2', clarao: '#fff3df', negro: '#1b140f',
+  aldeia: '#c4a3ff', cidade: '#8cc3ea', anac: '#e9e1d0' };
+// tipos de pista: 0 sem registro (suspeita), 1 aldeia, 2 cidade ou vila (as três conferidas no Sentinel-2) e as registradas na ANAC
+const AIR_TYPES = [['0', 'Sem registro', 'suspeitas: não achamos registro na ANAC'], ['1', 'Aldeia', 'pista de aldeia ou missão, de uso comunitário'],
+  ['2', 'Cidade ou vila', 'pista pública de cidade ou vila que falta na lista da ANAC'], ['reg', 'Registrada na ANAC', 'aeródromo público ou privado cadastrado']];
 const INK = { deforestation: '#8a5d00', mining: '#0c6f64', airstrips: '#a3195b' };   // mesmas cores, legíveis no painel
 const AIR_STATUS = { 1: 'ativa', 2: 'perdendo uso', 3: 'abandonada', 4: 'reaberta' };
 const AIR_KEY = [[1, 'Em uso', 'pista limpa no último ano com imagem boa'], [4, 'Reaberta', 'voltou a ser limpa depois de fechar'],
@@ -27,7 +31,7 @@ const TL_YEARS = Object.keys(EOX_YEARS).map(Number);
 const state = {
   mode: 'week', year: NOW_YEAR, cumulative: false, base: 'sat',
   on: { deforestation: true, mining: true, airstrips: true },
-  air: null, airZoom: null,
+  air: null, airZoom: null, airTypes: new Set(['0']), airHover: null,
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
   playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
@@ -207,22 +211,39 @@ function addDataLayers() {
     'circle-stroke-color': COLOR.negro, 'circle-stroke-width': 0.8,
   } });
 
-  // pistas: um traço por pista, na direção real; abaixo de ~1 km na tela o traço ganha um tamanho mínimo
-  map.addSource('src-air', { type: 'geojson', data: EMPTY });
-  const airW = (pad = 0) => ['interpolate', ['linear'], ['zoom'], 3, 2.2 + pad, 8, 3 + pad, 12, 4 + pad, 15, 6 + pad];
+  // pistas: um traço por pista, na direção real; abaixo de ~1 km na tela o traço ganha um tamanho mínimo.
+  // Com zoom alto o traço afina e fica translúcido, e some sob o mouse, para a imagem da pista aparecer.
+  map.addSource('src-air', { type: 'geojson', data: EMPTY, promoteId: 'i' });
+  map.addSource('src-air-reg', { type: 'geojson', data: EMPTY, promoteId: 'i' });
+  const airW = (pad = 0) => ['interpolate', ['linear'], ['zoom'], 3, 2.2 + pad, 8, 3 + pad, 12, 4 + pad, 14, 2.6 + pad * 0.5, 16, 2 + pad * 0.4];
+  const catColor = ['match', ['get', 'cat'], 1, COLOR.aldeia, 2, COLOR.cidade, COLOR.airstrips];
   map.addLayer({ id: 'air-casing', type: 'line', source: 'src-air', filter: ['!=', ['get', 'st'], 3],
     layout: { 'line-cap': 'butt' },
-    paint: { 'line-color': COLOR.negro, 'line-opacity': 0.55, 'line-width': airW(2) } });
+    paint: { 'line-color': COLOR.negro, 'line-opacity': airOpacity(0.55), 'line-width': airW(2) } });
   map.addLayer({ id: 'air-line', type: 'line', source: 'src-air', filter: ['!=', ['get', 'st'], 3],
     layout: { 'line-cap': 'butt' },
-    paint: { 'line-color': ['case', ['==', ['get', 'st'], 4], COLOR.clarao, COLOR.airstrips], 'line-width': airW(),
-      'line-opacity': ['case', ['==', ['get', 'st'], 2], 0.55, 1] } });
+    paint: { 'line-color': ['case', ['all', ['==', ['get', 'st'], 4], ['==', ['get', 'cat'], 0]], COLOR.clarao, catColor], 'line-width': airW(),
+      'line-opacity': airOpacity(['case', ['==', ['get', 'st'], 2], 0.55, 1]) } });
   map.addLayer({ id: 'air-gone', type: 'line', source: 'src-air', filter: ['==', ['get', 'st'], 3],
     layout: { 'line-cap': 'butt' },
-    paint: { 'line-color': COLOR.airstrips, 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.6, 12, 2.5], 'line-dasharray': [1.2, 1.1], 'line-opacity': 0.9 } });
+    paint: { 'line-color': catColor, 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.6, 12, 2.5, 16, 1.8], 'line-dasharray': [1.2, 1.1], 'line-opacity': airOpacity(0.9) } });
+  map.addLayer({ id: 'air-reg-line', type: 'line', source: 'src-air-reg', filter: ['==', ['geometry-type'], 'LineString'],
+    paint: { 'line-color': COLOR.anac, 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.2, 10, 2, 14, 1.6],
+      'line-opacity': airOpacity(0.85) } });
+  map.addLayer({ id: 'air-reg-dot', type: 'circle', source: 'src-air-reg', filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 1.6, 10, 3.2], 'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-color': COLOR.anac, 'circle-stroke-width': 1.3, 'circle-stroke-opacity': airOpacity(0.85) } });
   map.addLayer({ id: 'air-hit', type: 'line', source: 'src-air', paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 } });
+  map.addLayer({ id: 'air-reg-hit', type: 'line', source: 'src-air-reg', filter: ['==', ['geometry-type'], 'LineString'],
+    paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 14 } });
+  map.addLayer({ id: 'air-reg-hitdot', type: 'circle', source: 'src-air-reg', filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-color': '#000', 'circle-opacity': 0, 'circle-radius': 8 } });
+  for (const [id, src] of [['air-hit', 'src-air'], ['air-reg-hit', 'src-air-reg'], ['air-reg-hitdot', 'src-air-reg']]) {
+    map.on('mousemove', id, (e) => airHover(src, e.features[0]?.id));
+    map.on('mouseleave', id, () => airHover(null));
+  }
 
-  for (const id of ['lyr-deforestation', 'lyr-mining', 'radar-def-fill', 'radar-min-fill', 'radar-fronts', 'air-hit']) {
+  for (const id of ['lyr-deforestation', 'lyr-mining', 'radar-def-fill', 'radar-min-fill', 'radar-fronts', 'air-hit', 'air-reg-hit', 'air-reg-hitdot']) {
     map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
   }
@@ -233,11 +254,12 @@ function addDataLayers() {
 function onMapClick(e) {
   const ids = state.mode === 'radar'
     ? ['radar-fronts', 'radar-min-fill', 'radar-def-fill']
-    : ['air-hit', 'lyr-mining', 'lyr-deforestation'];
+    : ['air-hit', 'air-reg-hit', 'air-reg-hitdot', 'lyr-mining', 'lyr-deforestation'];
   const feats = map.queryRenderedFeatures(e.point, { layers: ids.filter((i) => map.getLayer(i)) });
   if (!feats.length) return;
   const f = feats[0], p = f.properties;
   if (f.layer.id === 'air-hit') return airPopup(p.i, e.lngLat);
+  if (f.layer.id.startsWith('air-reg')) return airRegPopup(p.i, e.lngLat);
   let html = '';
   if (f.layer.id === 'radar-fronts') {
     const tipos = state.radar?.fronts_tipos || {};
@@ -332,7 +354,23 @@ function periodLabel(p) {
 // ------------------------------------------------------------------ pistas de pouso sem registro
 // Cada linha: lon, lat, lon1, lat1, lon2, lat2, comprimento, surgiu depois de, surgiu até, situação,
 // último ano visto, fechada desde, km até garimpo, fontes, aberta por ano ("0"-"9" ou "-"), nome.
-const A = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, LEN: 6, B0: 7, B1: 8, ST: 9, LAST: 10, SHUT: 11, KM: 12, SRC: 13, SER: 14, NAME: 15 };
+const A = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, LEN: 6, B0: 7, B1: 8, ST: 9, LAST: 10, SHUT: 11, KM: 12, SRC: 13, SER: 14, NAME: 15, CAT: 16, TI: 17 };
+// registradas na ANAC: lon, lat, cabeceiras do OSM (ou null), pública, nome, código, município/UF
+const R = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, PUB: 6, NAME: 7, CODE: 8, PLACE: 9 };
+
+// opacidade das pistas: mais leve com zoom alto e quase sumida sob o mouse (para ver a imagem embaixo)
+function airOpacity(base, dim = 1) {
+  const hov = (v) => ['case', ['boolean', ['feature-state', 'hover'], false], 0.08, v];
+  const b = typeof base === 'number' ? base * dim : ['*', base, dim];
+  return ['interpolate', ['linear'], ['zoom'], 11, hov(b), 14, hov(typeof b === 'number' ? b * 0.5 : ['*', b, 0.5])];
+}
+
+function airHover(src, id) {
+  const cur = state.airHover;
+  if (cur && (cur.src !== src || cur.id !== id)) map.setFeatureState({ source: cur.src, id: cur.id }, { hover: false });
+  state.airHover = src != null && id != null ? { src, id } : null;
+  if (state.airHover) map.setFeatureState({ source: src, id }, { hover: true });
+}
 
 // situação da pista num ano do histórico, pela série de imagens (null = ainda não existia)
 function airAt(r, y, first) {
@@ -357,17 +395,25 @@ async function airData() {
   const y = state.mode === 'history' ? state.year : NOW_YEAR;
   const list = [];
   const by = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  const types = state.airTypes, cats = { 0: 0, 1: 0, 2: 0 };
+  let used0 = 0;
   doc.data.forEach((r, i) => {
     const st = state.mode === 'history' ? airAt(r, y, first) : r[A.ST];
     if (!st) return;
-    list.push({ i, st });
+    const cat = r[A.CAT] || 0;
+    cats[cat] += 1;
+    if (cat === 0 && (st === 1 || st === 4)) used0 += 1;
+    if (!types.has(String(cat))) return;
+    list.push({ i, st, cat });
     by[st] += 1;
   });
-  const born = state.mode === 'history' ? doc.data.filter((r) => r[A.B1] === y).length : 0;
+  const total = cats[0];
+  const reg = state.mode === 'history' || !types.has('reg') ? [] : (doc.reg || []);
+  const born = state.mode === 'history' ? doc.data.filter((r) => r[A.B1] === y && !r[A.CAT]).length : 0;
   const note = state.mode === 'history'
     ? (y < first ? `antes de ${first}, só as datadas pela perda de floresta` : `situação em ${y}${born ? `; ${born} surgiram até ${y}` : ''}`)
-    : `${by[1] + by[4]} em uso no último ano com imagem boa`;
-  return { total: list.length, list, by, note };
+    : `${used0} em uso no último ano com imagem boa`;
+  return { total, list, by, note, cats, reg, used0, regTotal: (doc.reg || []).length };
 }
 
 function airFeatures(r) {
@@ -382,7 +428,7 @@ function airFeatures(r) {
     const half = Math.hypot(dx, dy) / 2 || 1e-6;
     const h = Math.max(half, minHalf);
     dx = (dx / (2 * half)) * h; dy = (dy / (2 * half)) * h;   // meio traço
-    feats.push({ type: 'Feature', properties: { i, st },
+    feats.push({ type: 'Feature', properties: { i, st, cat: d[A.CAT] || 0 },
       geometry: { type: 'LineString', coordinates: [[d[A.LON] - dx / k, d[A.LAT] - dy], [d[A.LON] + dx / k, d[A.LAT] + dy]] } });
   }
   return feats;
@@ -392,16 +438,32 @@ function drawAir() {
   const src = map.getSource('src-air');
   if (!src) return;
   const r = state.results.airstrips;
-  if (!r || !r.list?.length || state.mode === 'radar' || !state.on.airstrips) { src.setData(EMPTY); return; }
+  const reg = map.getSource('src-air-reg');
+  if (!r || state.mode === 'radar' || !state.on.airstrips) { src.setData(EMPTY); reg.setData(EMPTY); return; }
   state.airZoom = Math.round(map.getZoom() * 2) / 2;
-  src.setData({ type: 'FeatureCollection', features: airFeatures(r) });
+  src.setData({ type: 'FeatureCollection', features: r.list.length ? airFeatures(r) : [] });
+  reg.setData({ type: 'FeatureCollection', features: r.reg.map((d, i) => ({ type: 'Feature', properties: { i },
+    geometry: d[R.X1] != null ? { type: 'LineString', coordinates: [[d[R.X1], d[R.Y1]], [d[R.X2], d[R.Y2]]] }
+      : { type: 'Point', coordinates: [d[R.LON], d[R.LAT]] } })) });
 }
 
 function drawAirKey() {
-  const r = state.results.airstrips, ul = $('#air-key');
-  ul.hidden = !state.on.airstrips || !r?.by;
+  const r = state.results.airstrips, ul = $('#air-key'), box = $('#air-types');
+  ul.hidden = box.hidden = !state.on.airstrips || !r?.by;
   if (ul.hidden) return;
   ul.innerHTML = AIR_KEY.map(([st, name, why]) => `<li data-st="${st}" title="${esc(why)}"><i aria-hidden="true"></i>${name}<b>${fmtInt(r.by[st] || 0)}</b></li>`).join('');
+  const hist = state.mode === 'history';
+  box.innerHTML = AIR_TYPES.map(([k, name, why]) => {
+    const n = k === 'reg' ? r.regTotal : r.cats[k];
+    const off = k === 'reg' && hist;
+    return `<button type="button" data-type="${k}" aria-pressed="${state.airTypes.has(k) && !off}" title="${esc(off ? 'sem data: só aparece fora do histórico' : why)}"${off ? ' disabled' : ''}>
+      <i aria-hidden="true"></i>${name}<b>${fmtInt(n || 0)}</b></button>`;
+  }).join('');
+}
+
+function toggleAirType(k) {
+  if (state.airTypes.has(k)) state.airTypes.delete(k); else state.airTypes.add(k);
+  airData().then((air) => { state.results.airstrips = air; drawAir(); drawAirKey(); writeLede(); syncURL(); });
 }
 
 // barra de anos do popup: quanto da pista estava limpa em cada ano; risco = imagem ruim, ano ignorado
@@ -436,14 +498,39 @@ function airPopup(i, ll) {
   const head = Math.round(((Math.atan2((r[A.X2] - r[A.X1]) * Math.cos((r[A.LAT] * Math.PI) / 180), r[A.Y2] - r[A.Y1]) * 180) / Math.PI + 360) % 180);
   const srcs = SRC_NAMES.filter(([b]) => r[A.SRC] & b).map(([, n]) => n).join(', ');
   const km = r[A.KM];
-  const html = `<h3>${r[A.NAME] ? esc(r[A.NAME]) : 'Pista sem registro'}</h3>
+  const cat = r[A.CAT] || 0, ti = r[A.TI];
+  const kind = ['Não achamos registro desta pista (suspeita), o que não prova que seja ilegal.',
+    'Pista de aldeia ou missão, de uso comunitário. Não está na lista da ANAC.',
+    'Pista pública de cidade ou vila. Não está na lista da ANAC.'][cat];
+  const html = `<h3>${r[A.NAME] ? esc(r[A.NAME]) : ['Pista sem registro', 'Pista de aldeia', 'Pista de cidade ou vila'][cat]}</h3>
     <div class="big">${fmtInt(r[A.LEN])} m</div>de pista, rumo ${String(head).padStart(3, '0')}°
     <p class="air-now" data-st="${st}">${now}</p>
     <p>${born}</p>
     ${airYears(r, first)}
+    ${ti ? `<p>Dentro da Terra Indígena <b>${esc(ti)}</b>.</p>` : ''}
     ${km != null ? `<p>${km < 1 ? 'Colada a um garimpo' : `Garimpo mais perto a ${nf.format(km)} km`}.</p>` : ''}
-    <p class="fine">Não achamos registro desta pista (suspeita), o que não prova que seja ilegal. Fonte da indicação: ${esc(srcs)}. Medida no Sentinel-2.</p>
+    <p class="fine">${kind} Fonte da indicação: ${esc(srcs)}. Medida no Sentinel-2.</p>
     <button class="tl-open" data-kind="airstrip" data-lng="${r[A.LON]}" data-lat="${r[A.LAT]}">Ver a evolução por satélite</button>`;
+  new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(ll).setHTML(html).addTo(map);
+}
+
+// opacidade normal (dim = 1) ou apagada durante a evolução por satélite
+function airDim(dim) {
+  map.setPaintProperty('air-casing', 'line-opacity', airOpacity(0.55, dim));
+  map.setPaintProperty('air-line', 'line-opacity', airOpacity(['case', ['==', ['get', 'st'], 2], 0.55, 1], dim));
+  map.setPaintProperty('air-gone', 'line-opacity', airOpacity(0.9, dim));
+  map.setPaintProperty('air-reg-line', 'line-opacity', airOpacity(0.85, dim));
+  map.setPaintProperty('air-reg-dot', 'circle-stroke-opacity', airOpacity(0.85, dim));
+}
+
+function airRegPopup(i, ll) {
+  const r = state.results.airstrips.reg[i];
+  if (!r) return;
+  const html = `<h3>${esc(r[R.NAME] || 'Aeródromo registrado')}</h3>
+    <div class="big">${esc(r[R.CODE] || '')}</div>${esc(r[R.PLACE] || '')}
+    <p class="air-reg">Registrada na ANAC como aeródromo ${r[R.PUB] ? 'público' : 'privado'}.</p>
+    <p class="fine">${r[R.X1] != null ? 'Traçado da pista: OpenStreetMap.' : 'Sem traçado da pista: só a posição do cadastro.'} Cadastro de aeródromos da ANAC, guardado no site.</p>
+    <button class="tl-open" data-kind="airstrip" data-lng="${r[R.LON]}" data-lat="${r[R.LAT]}">Ver a evolução por satélite</button>`;
   new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(ll).setHTML(html).addTo(map);
 }
 
@@ -484,7 +571,7 @@ async function render() {
   drawAir();
   drawAirKey();
   const ab = $('.layer[data-layer="airstrips"]');
-  $('[data-total]', ab).innerHTML = air.list?.length ? `${fmtInt(air.total)}<small>pistas</small>` : '–';
+  $('[data-total]', ab).innerHTML = air.total ? `${fmtInt(air.total)}<small>pistas</small>` : '–';
   $('[data-note]', ab).textContent = air.note || '';
   LAYERS.forEach((l, i) => {
     const r = results[i];
@@ -527,8 +614,8 @@ function writeLede() {
     }
   }
   const air = r.airstrips;
-  if (on.airstrips && air?.list?.length) {
-    const used = (air.by[1] || 0) + (air.by[4] || 0);
+  if (on.airstrips && air?.total) {
+    const used = air.used0 ?? ((air.by[1] || 0) + (air.by[4] || 0));
     const a = m === 'history'
       ? `<b>${fmtInt(air.total)}</b> pistas de pouso sem registro já abertas em ${state.year}, <b>${fmtInt(used)}</b> em uso.`
       : `<b>${fmtInt(air.total)}</b> pistas de pouso sem registro na Amazônia, <b>${fmtInt(used)}</b> em uso.`;
@@ -896,7 +983,7 @@ async function openTimelapse(lng, lat, kind) {
   for (const m of state.pins) m.getElement().style.display = 'none';
   $$('.maplibregl-popup').forEach((el) => el.remove());
   const zoom = kind === 'airstrip' ? 14 : state.on.deforestation ? (kind === 'mining' ? 12 : 11.3) : 13;
-  for (const id of ['air-casing', 'air-line', 'air-gone']) map.setPaintProperty(id, 'line-opacity', 0.35);
+  airDim(0.35);
   map.flyTo({ center: [lng, lat], zoom, speed: 1.6 });
   const ticks = $('#tl-ticks');
   ticks.innerHTML = '';
@@ -1021,9 +1108,7 @@ function closeTimelapse() {
   }
   for (const l of LAYERS) for (const id of [`lyr-${l}`, `lyr-${l}-edge`]) map.setLayoutProperty(id, 'visibility', 'visible');
   for (const id of RADAR_IDS) map.setLayoutProperty(id, 'visibility', 'visible');
-  map.setPaintProperty('air-casing', 'line-opacity', 0.55);
-  map.setPaintProperty('air-line', 'line-opacity', ['case', ['==', ['get', 'st'], 2], 0.55, 1]);
-  map.setPaintProperty('air-gone', 'line-opacity', 0.9);
+  airDim(1);
   for (const m of state.pins) m.getElement().style.display = '';
   state.tl = null;
   $('#tl').hidden = true;
@@ -1143,6 +1228,8 @@ function syncURL() {
   if (state.mode === 'history') q.set('ano', state.year);
   const ver = ['deforestation', 'mining', 'airstrips'].filter((l) => state.on[l]);
   if (ver.length < 3 && ver.length) q.set('ver', ver.map((l) => VER[l]).join(','));
+  const tipos = [...state.airTypes].sort().join(',');
+  if (tipos !== '0') q.set('pistas', tipos.replace('reg', 'anac'));
   if (state.base === 'dark') q.set('fundo', 'mapa');
   else if (state.mode !== 'history' && state.imgYear) q.set('imagem', state.imgYear);
   const s = q.toString();
@@ -1320,6 +1407,7 @@ function bind() {
     state.on[l] = !state.on[l];
     layersChanged();
   }));
+  $('#air-types').addEventListener('click', (e) => { const b = e.target.closest('button[data-type]'); if (b && !b.disabled) toggleAirType(b.dataset.type); });
   $('#img-prev').addEventListener('click', () => stepImage(-1));
   $('#img-next').addEventListener('click', () => stepImage(1));
   $$('.layer[data-radar]').forEach((btn) => btn.addEventListener('click', () => {
@@ -1362,6 +1450,8 @@ function bind() {
     $$('.layer[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(state.on[b.dataset.layer])));
   }
   if (q.get('ano')) { const [a, b] = yearBounds(); state.year = Math.min(b, Math.max(a, +q.get('ano'))); }
+  const tipos = (q.get('pistas') || '').split(',').map((t) => (t === 'anac' ? 'reg' : t)).filter((t) => AIR_TYPES.some(([k]) => k === t));
+  if (tipos.length) state.airTypes = new Set(tipos);
   const evo = (q.get('evolucao') || '').split(',').map(Number);
   if (evo.length === 2 && evo.every(Number.isFinite)) setTimeout(() => openTimelapse(evo[0], evo[1]), 300);
   const fundo = q.get('fundo'), imagem = +q.get('imagem');
