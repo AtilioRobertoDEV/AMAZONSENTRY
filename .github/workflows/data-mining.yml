@@ -34,6 +34,9 @@ jobs:
       - run: scripts/data-branch.sh checkout
       - working-directory: pipeline
         run: python mining.py
+      - name: Autorização (ANM) e áreas protegidas
+        working-directory: pipeline
+        run: python legal.py || echo "checagem de autorização falhou; fica a anterior"
       - name: Radar IA
         working-directory: pipeline
         run: python radar.py || echo "radar ainda sem dados de floresta"
