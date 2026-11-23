@@ -1,0 +1,85 @@
+name: Dados · pistas de pouso sem registro
+
+on:
+  schedule:
+    - cron: "15 3 * * *"    # diária: confere um lote de pistas por vez até cobrir todas
+  push:
+    branches: [main]
+    paths: ["pipeline/airstrips.py", "pipeline/sentinel2.py"]
+  workflow_dispatch:
+    inputs:
+      budget:
+        description: "Minutos de análise de imagem nesta rodada"
+        required: false
+        default: "240"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: data-branch
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    env:
+      SENTRY_DATA_DIR: ${{ github.workspace }}/data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: pip install -r pipeline/requirements.txt
+      - run: scripts/data-branch.sh checkout
+      - name: Pistas (OSM, OurAirports, MapBiomas + Sentinel-2)
+        working-directory: pipeline
+        run: python airstrips.py --budget ${{ inputs.budget || '240' }} --workers 24
+      - name: Tirar dados de fogo (camada abandonada)
+        run: |
+          rm -rf data/fires
+          python - <<'PY'
+          import json, pathlib
+          for name in ("manifest.json", "stats.json"):
+              p = pathlib.Path("data") / name
+              if p.exists():
+                  d = json.loads(p.read_text())
+                  (d.get("layers") or {}).pop("fires", None)
+                  d.pop("fires", None)
+                  p.write_text(json.dumps(d, separators=(",", ":"), ensure_ascii=False))
+          PY
+      - run: scripts/data-branch.sh publish "pistas $(date -u +%FT%TZ)"
+
+  deploy:
+    needs: update
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - name: Baixar dados (branch data)
+        run: scripts/data-branch.sh checkout
+      - name: Montar site
+        run: |
+          mkdir -p _site
+          cp -a site/. _site/
+          mkdir -p _site/data
+          rsync -a --exclude '.git' --exclude '_cache' --exclude 'README.md' --exclude 'fires' data/ _site/data/
+          du -sh _site _site/data
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

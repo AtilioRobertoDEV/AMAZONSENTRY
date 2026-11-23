@@ -1,8 +1,9 @@
 /* Amazon Sentry: floresta perdida e garimpo novo no Brasil, com o Radar IA.
  * Sem build: MapLibre GL (vendor/) + JSON gerado pelo pipeline em data/.
  *
- * Gramática visual: terra que muda = quadrado (área); previsão = contorno vazado. As células são reagregadas conforme o zoom para
- * que nenhum quadrado fique menor que alguns pixels.
+ * Gramática visual: terra que muda = quadrado (área); previsão = contorno vazado; pista de pouso = traço
+ * na direção real da pista (cheio se em uso, tracejado se abandonada). As células são reagregadas conforme o
+ * zoom para que nenhum quadrado fique menor que alguns pixels.
  */
 'use strict';
 
@@ -10,8 +11,11 @@ const DATA = 'data/';
 const DAY_MS = 86400000;
 const NOW_YEAR = new Date().getUTCFullYear();
 const LAYERS = ['deforestation', 'mining'];   // ordem de desenho
-const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', clarao: '#fff3df', negro: '#1b140f' };
-const INK = { deforestation: '#8a5d00', mining: '#0c6f64' };   // mesmas cores, legíveis no painel
+const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', airstrips: '#ff5fa2', clarao: '#fff3df', negro: '#1b140f' };
+const INK = { deforestation: '#8a5d00', mining: '#0c6f64', airstrips: '#a3195b' };   // mesmas cores, legíveis no painel
+const AIR_STATUS = { 1: 'ativa', 2: 'perdendo uso', 3: 'abandonada', 4: 'reaberta' };
+const AIR_KEY = [[1, 'Em uso', 'pista limpa no último ano com imagem boa'], [4, 'Reaberta', 'voltou a ser limpa depois de fechar'],
+  [2, 'Perdendo uso', 'o mato está voltando'], [3, 'Abandonada', 'a vegetação tomou a pista']];   // mesmas cores, legíveis no painel
 const FRONT_COLORS = { 1: '#1fc8b4', 2: '#f3c34a', 3: '#fff3df', 4: '#b39a6b' };
 const EOX_YEARS = { 2016: 's2cloudless_3857', 2018: 's2cloudless-2018_3857', 2019: 's2cloudless-2019_3857',
   2020: 's2cloudless-2020_3857', 2021: 's2cloudless-2021_3857', 2022: 's2cloudless-2022_3857',
@@ -22,7 +26,8 @@ const TL_YEARS = Object.keys(EOX_YEARS).map(Number);
 
 const state = {
   mode: 'week', year: NOW_YEAR, cumulative: false, base: 'sat',
-  on: { deforestation: true, mining: true },
+  on: { deforestation: true, mining: true, airstrips: true },
+  air: null, airZoom: null,
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
   playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
@@ -202,7 +207,22 @@ function addDataLayers() {
     'circle-stroke-color': COLOR.negro, 'circle-stroke-width': 0.8,
   } });
 
-  for (const id of ['lyr-deforestation', 'lyr-mining', 'radar-def-fill', 'radar-min-fill', 'radar-fronts']) {
+  // pistas: um traço por pista, na direção real; abaixo de ~1 km na tela o traço ganha um tamanho mínimo
+  map.addSource('src-air', { type: 'geojson', data: EMPTY });
+  const airW = (pad = 0) => ['interpolate', ['linear'], ['zoom'], 3, 2.2 + pad, 8, 3 + pad, 12, 4 + pad, 15, 6 + pad];
+  map.addLayer({ id: 'air-casing', type: 'line', source: 'src-air', filter: ['!=', ['get', 'st'], 3],
+    layout: { 'line-cap': 'butt' },
+    paint: { 'line-color': COLOR.negro, 'line-opacity': 0.55, 'line-width': airW(2) } });
+  map.addLayer({ id: 'air-line', type: 'line', source: 'src-air', filter: ['!=', ['get', 'st'], 3],
+    layout: { 'line-cap': 'butt' },
+    paint: { 'line-color': ['case', ['==', ['get', 'st'], 4], COLOR.clarao, COLOR.airstrips], 'line-width': airW(),
+      'line-opacity': ['case', ['==', ['get', 'st'], 2], 0.55, 1] } });
+  map.addLayer({ id: 'air-gone', type: 'line', source: 'src-air', filter: ['==', ['get', 'st'], 3],
+    layout: { 'line-cap': 'butt' },
+    paint: { 'line-color': COLOR.airstrips, 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.6, 12, 2.5], 'line-dasharray': [1.2, 1.1], 'line-opacity': 0.9 } });
+  map.addLayer({ id: 'air-hit', type: 'line', source: 'src-air', paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 } });
+
+  for (const id of ['lyr-deforestation', 'lyr-mining', 'radar-def-fill', 'radar-min-fill', 'radar-fronts', 'air-hit']) {
     map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
   }
@@ -213,10 +233,11 @@ function addDataLayers() {
 function onMapClick(e) {
   const ids = state.mode === 'radar'
     ? ['radar-fronts', 'radar-min-fill', 'radar-def-fill']
-    : ['lyr-mining', 'lyr-deforestation'];
+    : ['air-hit', 'lyr-mining', 'lyr-deforestation'];
   const feats = map.queryRenderedFeatures(e.point, { layers: ids.filter((i) => map.getLayer(i)) });
   if (!feats.length) return;
   const f = feats[0], p = f.properties;
+  if (f.layer.id === 'air-hit') return airPopup(p.i, e.lngLat);
   let html = '';
   if (f.layer.id === 'radar-fronts') {
     const tipos = state.radar?.fronts_tipos || {};
@@ -308,6 +329,124 @@ function periodLabel(p) {
   return q ? `${q}º trimestre de ${y}` : `${y}`;
 }
 
+// ------------------------------------------------------------------ pistas de pouso sem registro
+// Cada linha: lon, lat, lon1, lat1, lon2, lat2, comprimento, surgiu depois de, surgiu até, situação,
+// último ano visto, fechada desde, km até garimpo, fontes, aberta por ano ("0"-"9" ou "-"), nome.
+const A = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, LEN: 6, B0: 7, B1: 8, ST: 9, LAST: 10, SHUT: 11, KM: 12, SRC: 13, SER: 14, NAME: 15 };
+
+// situação da pista num ano do histórico, pela série de imagens (null = ainda não existia)
+function airAt(r, y, first) {
+  if (y >= NOW_YEAR && state.mode !== 'history') return r[A.ST];
+  const s = r[A.SER];
+  let i = Math.min(y - first, s.length - 1);
+  if (i < 0) return r[A.B1] != null && r[A.B1] <= y ? 1 : null;
+  while (i >= 0 && s[i] === '-') i -= 1;
+  if (i < 0) return r[A.B1] != null && r[A.B1] <= y ? 1 : null;
+  const v = +s[i];
+  if (v >= 5) return [...s.slice(0, i)].some((c, k) => c !== '-' && +c < 3 && [...s.slice(0, k)].some((d) => d !== '-' && +d >= 5)) ? 4 : 1;
+  const wasOpen = [...s.slice(0, i)].some((c) => c !== '-' && +c >= 5);
+  if (v >= 3) return wasOpen ? 2 : (r[A.B1] != null && r[A.B1] <= y ? 2 : null);
+  return wasOpen ? 3 : null;
+}
+
+async function airData() {
+  const doc = await getJSON('airstrips/airstrips.json');
+  if (!doc?.data?.length) return { total: 0, list: [], note: 'ainda conferindo as imagens' };
+  state.air = doc;
+  const first = doc.first_year || 2017;
+  const y = state.mode === 'history' ? state.year : NOW_YEAR;
+  const list = [];
+  const by = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  doc.data.forEach((r, i) => {
+    const st = state.mode === 'history' ? airAt(r, y, first) : r[A.ST];
+    if (!st) return;
+    list.push({ i, st });
+    by[st] += 1;
+  });
+  const born = state.mode === 'history' ? doc.data.filter((r) => r[A.B1] === y).length : 0;
+  const note = state.mode === 'history'
+    ? (y < first ? `antes de ${first}, só as datadas pela perda de floresta` : `situação em ${y}${born ? `; ${born} surgiram até ${y}` : ''}`)
+    : `${by[1] + by[4]} em uso no último ano com imagem boa`;
+  return { total: list.length, list, by, note };
+}
+
+function airFeatures(r) {
+  const z = map.getZoom();
+  const minHalf = 7 / pxPerDeg(z);          // traço de pelo menos ~14 px
+  const D = state.air.data;
+  const feats = [];
+  for (const { i, st } of r.list) {
+    const d = D[i];
+    const k = Math.cos((d[A.LAT] * Math.PI) / 180);
+    let dx = (d[A.X2] - d[A.X1]) * k, dy = d[A.Y2] - d[A.Y1];
+    const half = Math.hypot(dx, dy) / 2 || 1e-6;
+    const h = Math.max(half, minHalf);
+    dx = (dx / (2 * half)) * h; dy = (dy / (2 * half)) * h;   // meio traço
+    feats.push({ type: 'Feature', properties: { i, st },
+      geometry: { type: 'LineString', coordinates: [[d[A.LON] - dx / k, d[A.LAT] - dy], [d[A.LON] + dx / k, d[A.LAT] + dy]] } });
+  }
+  return feats;
+}
+
+function drawAir() {
+  const src = map.getSource('src-air');
+  if (!src) return;
+  const r = state.results.airstrips;
+  if (!r || !r.list?.length || state.mode === 'radar' || !state.on.airstrips) { src.setData(EMPTY); return; }
+  state.airZoom = Math.round(map.getZoom() * 2) / 2;
+  src.setData({ type: 'FeatureCollection', features: airFeatures(r) });
+}
+
+function drawAirKey() {
+  const r = state.results.airstrips, ul = $('#air-key');
+  ul.hidden = !state.on.airstrips || !r?.by;
+  if (ul.hidden) return;
+  ul.innerHTML = AIR_KEY.map(([st, name, why]) => `<li data-st="${st}" title="${esc(why)}"><i aria-hidden="true"></i>${name}<b>${fmtInt(r.by[st] || 0)}</b></li>`).join('');
+}
+
+// barra de anos do popup: quanto da pista estava limpa em cada ano; risco = imagem ruim, ano ignorado
+function airYears(r, first) {
+  const s = r[A.SER];
+  return `<div class="air-years" role="img" aria-label="Quanto da pista estava limpa em cada ano">${[...s].map((c, k) => {
+    const y = first + k;
+    if (c === '-') return `<span class="bad" title="${y}: imagem ruim, ano ignorado"><i></i><em>${String(y).slice(2)}</em></span>`;
+    return `<span title="${y}: ${+c * 10}% da pista limpa"><i style="--o:${(+c / 9).toFixed(2)}"></i><em>${String(y).slice(2)}</em></span>`;
+  }).join('')}</div>`;
+}
+
+const SRC_NAMES = [[1, 'OpenStreetMap'], [2, 'OurAirports'], [4, 'MapBiomas'], [8, 'detector do site']];
+
+function airPopup(i, ll) {
+  const doc = state.air, r = doc.data[i], first = doc.first_year || 2017;
+  const st = r[A.ST];
+  const b0 = r[A.B0], b1 = r[A.B1];
+  let born;
+  if (b1 == null) born = 'Data de abertura incerta.';
+  else if (b1 <= 2000) born = 'Já estava aberta em 2000.';
+  else if (b0 === b1) born = `Aberta por volta de <b>${b1}</b> (perda de floresta no eixo).`;
+  else if (b0 == null) born = `Já aberta na primeira imagem boa, de <b>${b1}</b>.`;
+  else {
+    const gap = [];
+    for (let y = b0 + 1; y < b1; y++) gap.push(y);
+    born = `Surgiu entre <b>${b0}</b> e <b>${b1}</b>${gap.length ? ` (${gap.join(', ')} sem imagem boa)` : ''}.`;
+  }
+  const now = { 1: `Em uso em ${r[A.LAST]}: pista limpa.`, 4: `Reaberta: limpa de novo em ${r[A.LAST]}.`,
+    2: `Perdendo uso em ${r[A.LAST]}: o mato está voltando.`,
+    3: `Abandonada${r[A.SHUT] ? ` desde ${r[A.SHUT]}` : ''}: a vegetação tomou a pista.` }[st];
+  const head = Math.round(((Math.atan2((r[A.X2] - r[A.X1]) * Math.cos((r[A.LAT] * Math.PI) / 180), r[A.Y2] - r[A.Y1]) * 180) / Math.PI + 360) % 180);
+  const srcs = SRC_NAMES.filter(([b]) => r[A.SRC] & b).map(([, n]) => n).join(', ');
+  const km = r[A.KM];
+  const html = `<h3>${r[A.NAME] ? esc(r[A.NAME]) : 'Pista sem registro'}</h3>
+    <div class="big">${fmtInt(r[A.LEN])} m</div>de pista, rumo ${String(head).padStart(3, '0')}°
+    <p class="air-now" data-st="${st}">${now}</p>
+    <p>${born}</p>
+    ${airYears(r, first)}
+    ${km != null ? `<p>${km < 1 ? 'Colada a um garimpo' : `Garimpo mais perto a ${nf.format(km)} km`}.</p>` : ''}
+    <p class="fine">Não achamos registro desta pista (suspeita), o que não prova que seja ilegal. Fonte da indicação: ${esc(srcs)}. Medida no Sentinel-2.</p>
+    <button class="tl-open" data-kind="airstrip" data-lng="${r[A.LON]}" data-lat="${r[A.LAT]}">Ver a evolução por satélite</button>`;
+  new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(ll).setHTML(html).addTo(map);
+}
+
 const LOADERS = { deforestation: deforestationData, mining: miningData };
 const SHAPE = { deforestation: 'square', mining: 'square' };
 const MIN_PX = { deforestation: 4, mining: 4 };
@@ -334,12 +473,19 @@ async function render() {
     await renderRadar();
     if (seq !== state.renderSeq) return;
     LAYERS.forEach(drawLayer);
+    drawAir();
     $('#loading').hidden = true;
     return;
   }
   clearRadar();
-  const results = await Promise.all(LAYERS.map((l) => LOADERS[l]()));
+  const [results, air] = await Promise.all([Promise.all(LAYERS.map((l) => LOADERS[l]())), airData()]);
   if (seq !== state.renderSeq) return;
+  state.results.airstrips = air;
+  drawAir();
+  drawAirKey();
+  const ab = $('.layer[data-layer="airstrips"]');
+  $('[data-total]', ab).innerHTML = air.list?.length ? `${fmtInt(air.total)}<small>pistas</small>` : '–';
+  $('[data-note]', ab).textContent = air.note || '';
   LAYERS.forEach((l, i) => {
     const r = results[i];
     if (r.cells && r.total == null) r.total = r.cells.total;
@@ -380,7 +526,15 @@ function writeLede() {
       s = both ? `Em ${y}: ${defo}${r.mining?.total ? ` e ${mine}` : ''}.` : `Em ${y}: ${on.mining ? mine : defo}.`;
     }
   }
-  if (!on.deforestation && !on.mining) s = 'Nenhuma camada ligada. Escolha abaixo o que mostrar.';
+  const air = r.airstrips;
+  if (on.airstrips && air?.list?.length) {
+    const used = (air.by[1] || 0) + (air.by[4] || 0);
+    const a = m === 'history'
+      ? `<b>${fmtInt(air.total)}</b> pistas de pouso sem registro já abertas em ${state.year}, <b>${fmtInt(used)}</b> em uso.`
+      : `<b>${fmtInt(air.total)}</b> pistas de pouso sem registro na Amazônia, <b>${fmtInt(used)}</b> em uso.`;
+    s = on.deforestation || on.mining ? `${s} ${a}` : a;
+  } else if (!on.deforestation && !on.mining) s = '';
+  if (!on.deforestation && !on.mining && !on.airstrips) s = 'Nenhuma camada ligada. Escolha abaixo o que mostrar.';
   $('#lede').innerHTML = s;
 }
 
@@ -713,7 +867,13 @@ async function openTimelapse(lng, lat, kind) {
     const x = d[i] / 1000, y = d[i + 1] / 1000;
     if (Math.abs(x - lng) < 0.16 && Math.abs(y - lat) < 0.16) near.push({ x, y, yr: Math.floor(d[i + 2] / 10), ha: d[i + 4] });
   }
-  state.tl = { lng, lat, near, i: 0, timer: null, loss: new Map(), seq: 0, bad: new Map() };
+  // pista: a mais perto do ponto, para contar no rodapé quanto dela estava limpa em cada ano
+  let air = null;
+  if (kind === 'airstrip' && state.air) {
+    let best = 0.02;
+    state.air.data.forEach((r) => { const d = Math.hypot(r[A.LON] - lng, r[A.LAT] - lat); if (d < best) { best = d; air = r; } });
+  }
+  state.tl = { lng, lat, near, air, i: 0, timer: null, loss: new Map(), seq: 0, bad: new Map() };
   for (const f of TL_FRAMES) {
     const esri = f.id === 'tl-hoje';
     map.addSource(f.id, RASTER([f.url], esri ? 'Imagens © Esri, Maxar' : 'Sentinel-2 cloudless © EOX (dados Copernicus)', esri ? 19 : 15));
@@ -735,7 +895,8 @@ async function openTimelapse(lng, lat, kind) {
   for (const id of RADAR_IDS) map.setLayoutProperty(id, 'visibility', 'none');
   for (const m of state.pins) m.getElement().style.display = 'none';
   $$('.maplibregl-popup').forEach((el) => el.remove());
-  const zoom = state.on.deforestation ? (kind === 'mining' ? 12 : 11.3) : 13;
+  const zoom = kind === 'airstrip' ? 14 : state.on.deforestation ? (kind === 'mining' ? 12 : 11.3) : 13;
+  for (const id of ['air-casing', 'air-line', 'air-gone']) map.setPaintProperty(id, 'line-opacity', 0.35);
   map.flyTo({ center: [lng, lat], zoom, speed: 1.6 });
   const ticks = $('#tl-ticks');
   ticks.innerHTML = '';
@@ -814,6 +975,12 @@ async function tlShow(i) {
       : `Nenhuma floresta derrubada ${spanTxt(a, bb)} em volta${prevHa ? `; ${haTxt(prevHa)} desde ${TL_FRAMES[0].y}` : ''}.`);
   } else map.getSource('src-tl-def').setData(EMPTY);
 
+  if (T.air) {
+    const first = state.air.first_year || 2017, c = T.air[A.SER][f.y - first];
+    if (c == null) parts.unshift(f.y < first ? `A medição da pista começa em ${first}.` : 'A pista ainda não foi medida neste ano.');
+    else if (c === '-') parts.unshift(`Pista: imagem de ${f.y} ruim, ano ignorado na medição.`);
+    else parts.unshift(`Pista: ${+c * 10}% dela limpa em ${f.y}, medida no Sentinel-2.`);
+  }
   parts.push(isLast ? 'Imagem mais recente disponível (Esri).' : `Mosaico Sentinel-2 sem nuvens de ${f.y} (EOX).`);
   if (T.bad.size) {
     const ys = [...T.bad.keys()];
@@ -854,6 +1021,9 @@ function closeTimelapse() {
   }
   for (const l of LAYERS) for (const id of [`lyr-${l}`, `lyr-${l}-edge`]) map.setLayoutProperty(id, 'visibility', 'visible');
   for (const id of RADAR_IDS) map.setLayoutProperty(id, 'visibility', 'visible');
+  map.setPaintProperty('air-casing', 'line-opacity', 0.55);
+  map.setPaintProperty('air-line', 'line-opacity', ['case', ['==', ['get', 'st'], 2], 0.55, 1]);
+  map.setPaintProperty('air-gone', 'line-opacity', 0.9);
   for (const m of state.pins) m.getElement().style.display = '';
   state.tl = null;
   $('#tl').hidden = true;
@@ -870,9 +1040,12 @@ function chartSeries() {
   for (const [y, v] of Object.entries(s.deforestation?.perda_hansen_ha || {})) defo[y] = { v };
   const mine = {};
   for (const [y, v] of Object.entries(s.mining?.area_nova_ha || {})) if (+y > 2018) mine[y] = { v };
+  const air = {};
+  for (const [y, v] of Object.entries(s.airstrips?.novas_por_ano || {})) if (+y > 2017) air[y] = { v };
   return [
     ['deforestation', defo, 'Floresta perdida', (v) => haTxt(v), 'claro: alertas GLAD do ano ainda sem o número anual'],
     ['mining', mine, 'Garimpo novo', (v) => haTxt(v), ''],
+    ['airstrips', air, 'Pistas que surgiram', (v) => `${fmtInt(v)} ${v === 1 ? 'pista' : 'pistas'}`, 'no último ano da janela em que apareceram'],
   ];
 }
 
@@ -968,7 +1141,8 @@ function syncURL() {
   if (state.mode !== 'week') q.set('modo', state.mode);
   if (state.tl) q.set('evolucao', `${state.tl.lng.toFixed(4)},${state.tl.lat.toFixed(4)}`);
   if (state.mode === 'history') q.set('ano', state.year);
-  if (!state.on.deforestation || !state.on.mining) q.set('ver', state.on.mining ? 'garimpo' : 'desmatamento');
+  const ver = ['deforestation', 'mining', 'airstrips'].filter((l) => state.on[l]);
+  if (ver.length < 3 && ver.length) q.set('ver', ver.map((l) => VER[l]).join(','));
   if (state.base === 'dark') q.set('fundo', 'mapa');
   else if (state.mode !== 'history' && state.imgYear) q.set('imagem', state.imgYear);
   const s = q.toString();
@@ -1077,20 +1251,28 @@ function yearBounds() {
   const ys = [];
   if (state.on.deforestation) ys.push(...(L.deforestation?.loss_years || []), ...(L.deforestation?.alert_years || []));
   if (state.on.mining) ys.push(...(L.mining?.years || []));
+  if (state.on.airstrips && L.airstrips) ys.push(2017);
   return [ys.length ? Math.min(...ys) : 2001, NOW_YEAR];
 }
 
 function setShow(v) {
-  state.on.deforestation = v !== 'mining';
-  state.on.mining = v !== 'deforestation';
+  for (const l of ['deforestation', 'mining', 'airstrips']) state.on[l] = v === 'all' || v === l;
   layersChanged();
 }
 
+// 'all', uma camada só, ou '' quando a combinação não é nenhum dos botões
+function showValue() {
+  const on = ['deforestation', 'mining', 'airstrips'].filter((l) => state.on[l]);
+  return on.length === 3 ? 'all' : on.length === 1 ? on[0] : '';
+}
+const VER = { deforestation: 'desmatamento', mining: 'garimpo', airstrips: 'pistas' };
+
 function layersChanged() {
-  const v = state.on.deforestation && state.on.mining ? 'both' : state.on.deforestation ? 'deforestation' : state.on.mining ? 'mining' : '';
-  $$('#show button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.show === v)));
+  $$('#show button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.show === showValue())));
   $$('.layer[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(state.on[b.dataset.layer])));
   LAYERS.forEach(drawLayer);
+  drawAir();
+  drawAirKey();
   if (state.mode !== 'radar') writeLede();
   $$('#charts .chart').forEach((c) => { c.hidden = !state.on[c.dataset.layer]; });
   const [a] = yearBounds();
@@ -1169,14 +1351,14 @@ function bind() {
       const r = state.results[l];
       if (r?.cells && factorFor(r.cells.cs, MIN_PX[l]) !== state.factors[l]) drawLayer(l);
     }
+    if (state.airZoom !== Math.round(map.getZoom() * 2) / 2) drawAir();
   });
   // parâmetros na URL: ?modo=history&ano=2019&fundo=sat
   const q = new URLSearchParams(location.search);
-  const ver = q.get('ver');
-  if (ver === 'garimpo' || ver === 'desmatamento') {
-    state.on.deforestation = ver === 'desmatamento';
-    state.on.mining = ver === 'garimpo';
-    $$('#show button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.show === (ver === 'garimpo' ? 'mining' : 'deforestation'))));
+  const ver = (q.get('ver') || '').split(',').filter((v) => Object.values(VER).includes(v));
+  if (ver.length) {
+    for (const [l, name] of Object.entries(VER)) state.on[l] = ver.includes(name);
+    $$('#show button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.show === showValue())));
     $$('.layer[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(state.on[b.dataset.layer])));
   }
   if (q.get('ano')) { const [a, b] = yearBounds(); state.year = Math.min(b, Math.max(a, +q.get('ano'))); }
