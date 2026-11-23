@@ -107,7 +107,7 @@ def fetch(n_sites=900, half=0.025, chunk=30):
     C.write_json(CACHE / "train_osm.json", {"checked": dt.date.today().isoformat(), "ways": ways})
 
 
-def straight_pieces(g, lo=450, hi=1400, tol=12):
+def straight_pieces(g, lo=350, hi=1900, tol=12):
     """Trechos retos (desvio < tol m) de lo a hi metros de uma linha (lon/lat)."""
     g = np.asarray(g, float)
     if len(g) < 2:
@@ -160,6 +160,21 @@ def examples(max_neg_per_kind=900, seed=3):
     keep = in_legal(np.array([(p["ends"][0][0] + p["ends"][1][0]) / 2 for p in pos]),
                     np.array([(p["ends"][0][1] + p["ends"][1][1]) / 2 for p in pos])) if pos else []
     pos = [p for p, k in zip(pos, keep) if k]
+    # trechos negativos cortados com o mesmo comprimento das pistas, para o tamanho
+    # sozinho não separar as classes
+    def mlen(e):
+        (x1, y1_), (x2, y2_) = e["ends"]
+        return np.hypot((x2 - x1) * 111320 * np.cos(np.radians(y1_)), (y2_ - y1_) * 110570)
+    plen = [L for L in map(mlen, pos) if 300 <= L <= 1900] or [800.0]
+
+    def trim(a, b):
+        L = mlen({"ends": [a, b]})
+        want = rnd.choice(plen)
+        if L <= want:
+            return a, b
+        f0 = rnd.uniform(0, 1 - want / L)
+        f1 = f0 + want / L
+        return ((a[0] + (b[0] - a[0]) * f0, a[1] + (b[1] - a[1]) * f0), (a[0] + (b[0] - a[0]) * f1, a[1] + (b[1] - a[1]) * f1))
     neg = {"estrada_terra": [], "asfalto": [], "rua": [], "rio": []}
     for w in (C.read_json(CACHE / "train_osm.json") or {}).get("ways", []):
         if w["kind"] == "water":
@@ -171,6 +186,7 @@ def examples(max_neg_per_kind=900, seed=3):
         else:
             kind = "estrada_terra"
         for a, b in straight_pieces(w["g"])[:2]:
+            a, b = trim(a, b)
             neg[kind].append({"ends": [a, b], "label": 0, "kind": kind, "id": f"w{w['id']}_{len(neg[kind])}"})
     out = list(pos)
     for kind, lst in neg.items():
