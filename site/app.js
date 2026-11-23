@@ -18,7 +18,7 @@ const REG_NEAR_KM = 20;   // registrada "perto de garimpo
 const AIR_TYPES = [['0', 'Sem registro', 'suspeitas: não achamos registro na ANAC'], ['1', 'Aldeia', 'pista de aldeia ou missão, de uso comunitário'],
   ['2', 'Cidade ou vila', 'pista pública de cidade ou vila que falta na lista da ANAC'],
   ['reg', 'Outras registradas', 'aeródromo público ou privado cadastrado na ANAC, longe de garimpo'],
-  ['regg', 'Registrada perto de garimpo', 'aeródromo privado cadastrado na ANAC a até 20 km de garimpo: o registro não impede o uso pelo garimpo'],
+  ['regg', 'Registrada perto de garimpo', 'aeródromo privado cadastrado na ANAC a até 5 km de garimpo: o registro não impede o uso pelo garimpo'],
   ['fora', 'Fora da floresta', 'Cerrado, Pantanal e a transição do Mato Grosso, longe de garimpo e de terra indígena: quase sempre pista de fazenda']];
 const INK = { deforestation: '#8a5d00', mining: '#0c6f64', airstrips: '#a3195b' };   // mesmas cores, legíveis no painel
 const AIR_STATUS = { 1: 'ativa', 2: 'perdendo uso', 3: 'abandonada', 4: 'reaberta' };

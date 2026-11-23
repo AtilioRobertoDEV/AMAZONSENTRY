@@ -1059,6 +1059,7 @@ ECOREGIONS = "https://storage.googleapis.com/teow2016/Ecoregions2017.zip"
 FOREST_BIOMES = {1, 14}   # florestas úmidas tropicais e mangues
 NOT_AMAZON = {481, 439, 443, 485, 444, 457, 477, 493, 504}   # transição do MT, Mata Atlântica e Andes
 NEAR_MINING_KM = 20
+REG_NEAR_KM = 5   # registrada privada a até 5 km de garimpo: aparece no mapa (registro não impede o uso)
 
 
 def amazon_forest():
@@ -1247,7 +1248,7 @@ def write_output(sites, items, this_year):
     for row, km_ in zip(reg, nearest_km([r_[0] for r_ in reg], [r_[1] for r_ in reg], mp)):
         row.append(km_)
     cats["registrada"] = len(reg)
-    cats["registrada perto de garimpo"] = sum(1 for row in reg if not row[6] and row[10] is not None and row[10] <= NEAR_MINING_KM)
+    cats["registrada perto de garimpo"] = sum(1 for row in reg if not row[6] and row[10] is not None and row[10] <= REG_NEAR_KM)
     cats["em terra indígena"] = sum(1 for row in data if row[17] and row[16] == 0)
     prios = {k: sum(1 for row in data if row[18] == v and row[16] == 0)
              for k, v in (("perto de garimpo ou em TI", 1), ("floresta", 2), ("fora da floresta", 3))}
