@@ -13,7 +13,7 @@ const NOW_YEAR = new Date().getUTCFullYear();
 const LAYERS = ['deforestation', 'mining'];   // ordem de desenho
 const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', airstrips: '#ff5fa2', clarao: '#fff3df', negro: '#1b140f',
   aldeia: '#c4a3ff', cidade: '#8cc3ea', anac: '#e9e1d0', anacg: '#ffb25c' };
-const REG_NEAR_KM = 20;   // registrada "perto de garimpo
+const REG_NEAR_KM = 5;    // registrada "perto de garimpo": privada a até 5 km de garimpo detectado
 // tipos de pista: 0 sem registro (suspeita), 1 aldeia, 2 cidade ou vila (as três conferidas no Sentinel-2) e as registradas na ANAC
 const AIR_TYPES = [['0', 'Sem registro', 'suspeitas: não achamos registro na ANAC'], ['1', 'Aldeia', 'pista de aldeia ou missão, de uso comunitário'],
   ['2', 'Cidade ou vila', 'pista pública de cidade ou vila que falta na lista da ANAC'],
