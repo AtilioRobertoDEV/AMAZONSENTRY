@@ -36,6 +36,14 @@
 
       <!-- observação: o que os satélites viram -->
       <section id="observed" aria-label="Camadas">
+        <div class="show">
+          <span class="show-label" id="show-label">Mostrar no mapa</span>
+          <div class="seg" id="show" role="group" aria-labelledby="show-label">
+            <button data-show="both" aria-pressed="true">Os dois</button>
+            <button data-show="deforestation" aria-pressed="false">Desmatamento</button>
+            <button data-show="mining" aria-pressed="false">Garimpo</button>
+          </div>
+        </div>
         <button class="layer" data-layer="deforestation" aria-pressed="true">
           <span class="sw" aria-hidden="true"></span>
           <span class="name">Floresta perdida</span>
@@ -76,19 +84,15 @@
         </details>
       </section>
 
+      <section id="base" aria-label="Imagem de satélite">
+        <h2>Imagem de satélite de cada ano</h2>
+        <div id="imgs" class="chips" role="group" aria-label="Ano da imagem"></div>
+        <p id="base-note" class="fine"></p>
+      </section>
+
       <section id="trend" aria-label="Série anual">
         <h2 id="trend-title">Ano a ano</h2>
         <div id="charts"></div>
-      </section>
-
-      <section id="base" aria-label="Fundo do mapa">
-        <h2>Fundo do mapa</h2>
-        <div class="seg" id="basemaps">
-          <button data-base="sat" aria-pressed="true">Satélite</button>
-          <button data-base="dark" aria-pressed="false">Mapa</button>
-          <button data-base="s2" aria-pressed="false" title="Mosaico Sentinel-2 sem nuvens do ano escolhido (2016 em diante)">Imagem do ano</button>
-        </div>
-        <p id="base-note" class="fine"></p>
       </section>
 
       <footer>
@@ -111,6 +115,7 @@
     <button id="play" aria-label="Reproduzir a série ano a ano"><span aria-hidden="true">▶</span></button>
     <input id="year" type="range" min="1985" max="2026" step="1" value="2026" aria-label="Ano">
     <output id="year-label" for="year">2026</output>
+    <span class="ends" aria-hidden="true"><span id="year-min"></span><span id="year-max"></span></span>
   </div>
 
   <section id="tl" hidden aria-label="Evolução por satélite">
@@ -122,6 +127,12 @@
     </div>
     <button id="tl-close" aria-label="Fechar a evolução">Fechar</button>
   </section>
+
+  <div id="img-badge" hidden>
+    <button id="img-prev" aria-label="Imagem do ano anterior">‹</button>
+    <span class="what"><small>Imagem de satélite</small><b id="img-year">Hoje</b><small id="img-src">Esri</small></span>
+    <button id="img-next" aria-label="Imagem do ano seguinte">›</button>
+  </div>
 
   <div id="loading" role="status" hidden>Carregando</div>
 

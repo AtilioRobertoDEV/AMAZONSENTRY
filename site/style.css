@@ -1,5 +1,5 @@
 /* Amazon Sentry: o painel é a água barrenta do Solimões, o mapa é o Rio Negro.
- * Fogo = pontos (eventos). Terra que muda = quadrados (área). Previsão = contorno vazado. */
+ * Terra que muda = quadrados (área). Previsão = contorno vazado. */
 
 @font-face {
   font-family: "Archivo";
@@ -22,7 +22,6 @@
   --tinta: #2a1e12;
   --tinta-2: rgba(42, 30, 18, .7);
   --regua: rgba(42, 30, 18, .22);
-  --brasa: #ff4d1a;        /* fogo */
   --laterita: #f3c34a;     /* solo exposto */
   --rejeito: #1fc8b4;      /* lagoa de rejeito de garimpo */
   --clarao: #fff3df;       /* foco novo, previsão */
@@ -337,4 +336,50 @@ body.tl-on #timeline { display: none; }
   #tl-close { grid-column: 1 / -1; justify-self: end; order: -1; }
   #tl-year { font-size: 44px; }
   #tl-note { font-size: 13px; }
+}
+
+/* ------------------------------------------------------------- mostrar: desmatamento, garimpo ou os dois */
+.show { padding: 12px 0 12px; border-bottom: 1px solid var(--regua); }
+.show-label { display: block; font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; font-stretch: 90%; color: var(--tinta-2); margin-bottom: 6px; }
+#show button[data-show="deforestation"]::before, #show button[data-show="mining"]::before {
+  content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: 0;
+}
+#show button[data-show="deforestation"]::before { background: var(--laterita); box-shadow: inset 0 0 0 1px rgba(42, 30, 18, .35); }
+#show button[data-show="mining"]::before { background: var(--rejeito); }
+
+/* imagem de satélite de cada ano */
+.chips { display: grid; grid-template-columns: repeat(5, 1fr); border: 1.5px solid var(--tinta); }
+.chips button {
+  appearance: none; background: none; border: 0; cursor: pointer; padding: 7px 2px; font-size: 13px; font-weight: 600;
+  border-right: 1px solid var(--regua); border-bottom: 1px solid var(--regua);
+}
+.chips button:nth-child(5n) { border-right: 0; }
+.chips button:nth-last-child(-n+2) { border-bottom: 0; }
+.chips button.wide { grid-column: span 4; font-weight: 560; font-stretch: 90%; color: var(--tinta-2); }
+.chips button:hover { background: rgba(42, 30, 18, .07); }
+.chips button[aria-pressed="true"] { background: var(--tinta); color: var(--solimoes); }
+
+/* selo no mapa: qual imagem está por baixo, com setas para trocar o ano */
+#img-badge {
+  position: absolute; top: 16px; left: calc(var(--rail) + 36px); z-index: 2;
+  display: flex; align-items: stretch; background: rgba(27, 20, 15, .78); color: var(--clarao);
+  border: 1px solid rgba(255, 243, 223, .35); border-radius: 2px; box-shadow: 0 4px 18px rgba(0, 0, 0, .35);
+}
+#img-badge button {
+  appearance: none; background: none; border: 0; color: var(--clarao); cursor: pointer; width: 34px; font-size: 22px; line-height: 1;
+}
+#img-badge button:hover:not(:disabled) { background: var(--clarao); color: var(--negro); }
+#img-badge button:disabled { opacity: .25; cursor: default; }
+#img-badge .what { display: grid; justify-items: center; padding: 5px 6px 6px; min-width: 96px; }
+#img-badge small { font-size: 10px; letter-spacing: .07em; text-transform: uppercase; opacity: .75; font-weight: 600; }
+#img-badge b { font-size: 24px; line-height: 1; font-weight: 800; font-stretch: 120%; margin: 2px 0 1px; }
+#loading { top: 92px; }
+
+/* régua do histórico: começo e fim da série das camadas ligadas */
+#timeline .ends { grid-column: 2; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-top: -10px; opacity: .8; text-shadow: 0 1px 6px rgba(0, 0, 0, .8); }
+
+@media (max-width: 760px) {
+  #img-badge { left: 14px; top: 14px; }
+  #img-badge b { font-size: 20px; }
+  #loading { top: 80px; }
 }

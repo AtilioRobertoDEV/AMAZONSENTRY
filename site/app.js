@@ -9,7 +9,6 @@
 const DATA = 'data/';
 const DAY_MS = 86400000;
 const NOW_YEAR = new Date().getUTCFullYear();
-const FIRST_YEAR = 1985;
 const LAYERS = ['deforestation', 'mining'];   // ordem de desenho
 const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', clarao: '#fff3df', negro: '#1b140f' };
 const INK = { deforestation: '#8a5d00', mining: '#0c6f64' };   // mesmas cores, legíveis no painel
@@ -27,6 +26,7 @@ const state = {
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
   playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
+  imgYear: null, follow: true,
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -129,7 +129,6 @@ const map = new maplibregl.Map({
         '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/">CARTO</a>', 18),
       sat: RASTER(['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
         'Imagens © Esri, Maxar, Earthstar Geographics'),
-      s2: RASTER([eoxUrl(2024)], 'Sentinel-2 cloudless © <a href="https://s2maps.eu">EOX</a> (dados Copernicus)', 15),
       brasil: { type: 'geojson', data: DATA + 'base/brasil.geojson' },
       fora: { type: 'geojson', data: EMPTY },
       estados: { type: 'geojson', data: DATA + 'base/estados.geojson' },
@@ -138,7 +137,6 @@ const map = new maplibregl.Map({
       { id: 'bg', type: 'background', paint: { 'background-color': COLOR.negro } },
       { id: 'base-dark', type: 'raster', source: 'dark', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.72, 'raster-contrast': 0.1 } },
       { id: 'base-sat', type: 'raster', source: 'sat' },
-      { id: 'base-s2', type: 'raster', source: 's2', layout: { visibility: 'none' } },
       { id: 'fora-fill', type: 'fill', source: 'fora', paint: { 'fill-color': COLOR.negro, 'fill-opacity': 0.55 } },
       { id: 'estados-line', type: 'line', source: 'estados', paint: { 'line-color': '#d6be93', 'line-width': 0.6, 'line-opacity': 0.35 } },
       { id: 'brasil-line', type: 'line', source: 'brasil', paint: { 'line-color': '#d6be93', 'line-width': 1.3, 'line-opacity': 0.75 } },
@@ -239,9 +237,8 @@ function onMapClick(e) {
     const side = Math.round(p.cs * 111);
     html += `<p class="fine">${esc(state.results[p.layer]?.note || '')}${p.cs ? `. Quadro de ~${side} km.` : ''}</p>`;
   }
-  if (p.layer === 'mining' || f.layer.id === 'radar-fronts' || f.layer.id.startsWith('radar-min')) {
-    html += `<button class="tl-open" data-lng="${e.lngLat.lng}" data-lat="${e.lngLat.lat}">Ver a evolução por satélite</button>`;
-  }
+  const kind = p.layer === 'mining' || f.layer.id.startsWith('radar-min') || (f.layer.id === 'radar-fronts' && p.tipo === 1) ? 'mining' : 'deforestation';
+  html += `<button class="tl-open" data-kind="${kind}" data-lng="${e.lngLat.lng}" data-lat="${e.lngLat.lat}">Ver a evolução por satélite</button>`;
   new maplibregl.Popup({ maxWidth: '260px' }).setLngLat(e.lngLat).setHTML(html).addTo(map);
 }
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -362,21 +359,28 @@ async function render() {
 
 // a frase que abre o painel resume o período em palavras
 function writeLede() {
-  const r = state.results, m = state.mode;
+  const r = state.results, m = state.mode, on = state.on;
   const defo = `<b>${haTxt(r.deforestation?.total || 0)}</b> de floresta derrubada`;
   const mine = `<b>${haTxt(r.mining?.total || 0)}</b> de garimpo novo`;
+  const both = on.deforestation && on.mining;
   let s;
   if (m === 'week' || m === 'month') {
     const n = m === 'week' ? 7 : 30;
-    s = `Nos últimos ${n} dias de alertas, ${defo}. No trimestre mais recente, ${mine}.`;
+    const a = `Nos últimos ${n} dias de alertas, ${defo}.`, b = `No trimestre mais recente, ${mine}.`;
+    s = both ? `${a} ${b}` : on.mining ? b : a;
   } else if (m === 'year') {
-    s = `Em ${NOW_YEAR}, até agora: ${defo} e ${mine}.`;
+    s = both ? `Em ${NOW_YEAR}, até agora: ${defo} e ${mine}.` : `Em ${NOW_YEAR}, até agora: ${on.mining ? mine : defo}.`;
   } else {
     const y = state.year;
-    s = state.cumulative
-      ? `De 2001 a ${y}, ${defo}${r.mining?.total ? `; desde 2018, <b>${haTxt(r.mining.total)}</b> de garimpo` : ''}.`
-      : `Em ${y}: ${defo}${r.mining?.total ? ` e ${mine}` : ''}.`;
+    const mineCum = `<b>${haTxt(r.mining?.total || 0)}</b> de garimpo`;
+    if (state.cumulative) {
+      const a = `De 2001 a ${y}, ${defo}`, b = `desde 2018, ${mineCum}`;
+      s = both ? `${a}${r.mining?.total ? `; ${b}` : ''}.` : on.mining ? `De 2018 a ${y}, ${mineCum}.` : `${a}.`;
+    } else {
+      s = both ? `Em ${y}: ${defo}${r.mining?.total ? ` e ${mine}` : ''}.` : `Em ${y}: ${on.mining ? mine : defo}.`;
+    }
   }
+  if (!on.deforestation && !on.mining) s = 'Nenhuma camada ligada. Escolha abaixo o que mostrar.';
   $('#lede').innerHTML = s;
 }
 
@@ -505,7 +509,7 @@ function focusPoint(p, pin) {
     <p class="fine">${p.tema === 'garimpo' ? 'Chance de garimpo novo' : 'Chance de perder 50 ha ou mais de floresta'} em ${state.radar.previsao_ano}.
     Desmatamento ${p.risco_desmatamento}%, garimpo ${p.risco_garimpo}%.
     Alertas neste ano: ${haTxt(p.alertas_ano_ha || 0)}. Área de ~11 km.</p>
-    <button class="tl-open" data-lng="${p.lon}" data-lat="${p.lat}">Ver a evolução por satélite</button>`;
+    <button class="tl-open" data-kind="${p.tema === 'garimpo' ? 'mining' : 'deforestation'}" data-lng="${p.lon}" data-lat="${p.lat}">Ver a evolução por satélite</button>`;
   new maplibregl.Popup({ maxWidth: '280px', offset: 20 }).setLngLat([p.lon, p.lat]).setHTML(html).addTo(map);
 }
 
@@ -558,10 +562,12 @@ function inRing(x, y, ring) {
 
 // ------------------------------------------------------------------ evolução por satélite
 // Roda os mosaicos anuais Sentinel-2 (EOX) e por fim a imagem atual (Esri) em volta
-// de um ponto, com o garimpo mapeado até cada ano desenhado por cima.
+// de um ponto. Por cima, o que foi mapeado em cada intervalo: garimpo (quadrados) e
+// floresta derrubada (quadros de ~5 km da perda anual Hansen), conforme o que está ligado.
 const TL_FRAMES = [...TL_YEARS.map((y) => ({ y, id: `tl-${y}`, url: eoxUrl(y), label: String(y) })),
   { y: NOW_YEAR, id: 'tl-hoje', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', label: 'Hoje' }];
 const RADAR_IDS = ['radar-def-fill', 'radar-def', 'radar-min-fill', 'radar-min', 'radar-fronts'];
+const TL_LAYERS = ['tl-def-fill', 'tl-def', 'tl-mine'];
 
 function detSquare(n, novo) {
   const side = Math.sqrt(Math.max(n.ha, 0.5) * 1e4);
@@ -570,7 +576,47 @@ function detSquare(n, novo) {
     geometry: { type: 'Polygon', coordinates: [[[n.x - dx, n.y - dy], [n.x + dx, n.y - dy], [n.x + dx, n.y + dy], [n.x - dx, n.y + dy], [n.x - dx, n.y - dy]]] } };
 }
 
-async function openTimelapse(lng, lat) {
+// janela de anos que cada quadro representa: do quadro anterior (exclusive) até ele
+function tlWindow(i) {
+  const f = TL_FRAMES[i];
+  const a = i === 0 ? f.y : TL_FRAMES[i - 1].y + 1;
+  return [a, f.y];
+}
+const spanTxt = (a, b) => (a >= b ? `em ${b}` : `entre ${a} e ${b}`);
+
+// perda Hansen de um ano, só nos quadros perto do ponto
+async function tlLoss(T, y) {
+  if (!T.loss.has(y)) {
+    T.loss.set(y, getJSON(`deforestation/loss/${y}.json`).then((doc) => {
+      const out = new Map();
+      if (!doc?.data) return out;
+      const cs = doc.cell, [ox, oy] = doc.origin, d = doc.data;
+      const cx = Math.floor((T.lng - ox) / cs), cy = Math.floor((T.lat - oy) / cs);
+      for (let k = 0; k < d.length; k += 4) {
+        if (Math.abs(d[k] - cx) > 3 || Math.abs(d[k + 1] - cy) > 3) continue;
+        const key = `${d[k]},${d[k + 1]}`;
+        out.set(key, (out.get(key) || 0) + d[k + 3]);
+      }
+      out.cs = cs; out.ox = ox; out.oy = oy;
+      return out;
+    }));
+  }
+  return T.loss.get(y);
+}
+
+async function tlDefSum(T, a, b) {
+  const years = (state.manifest.layers?.deforestation?.loss_years || []).filter((y) => y >= a && y <= b);
+  const maps = await Promise.all(years.map((y) => tlLoss(T, y)));
+  const sum = new Map();
+  let geo = null;
+  for (const m of maps) {
+    if (m.cs) geo = m;
+    for (const [k, v] of m) sum.set(k, (sum.get(k) || 0) + v);
+  }
+  return { sum, geo, years };
+}
+
+async function openTimelapse(lng, lat, kind) {
   if (state.tl) closeTimelapse();
   stopPlay();
   const doc = await getJSON('mining/detections.json');
@@ -578,9 +624,9 @@ async function openTimelapse(lng, lat) {
   const near = [];
   for (let i = 0; i < d.length; i += 5) {
     const x = d[i] / 1000, y = d[i + 1] / 1000;
-    if (Math.abs(x - lng) < 0.08 && Math.abs(y - lat) < 0.08) near.push({ x, y, yr: Math.floor(d[i + 2] / 10), ha: d[i + 4] });
+    if (Math.abs(x - lng) < 0.16 && Math.abs(y - lat) < 0.16) near.push({ x, y, yr: Math.floor(d[i + 2] / 10), ha: d[i + 4] });
   }
-  state.tl = { lng, lat, near, i: 0, timer: null };
+  state.tl = { lng, lat, near, i: 0, timer: null, loss: new Map(), seq: 0 };
   for (const f of TL_FRAMES) {
     const esri = f.id === 'tl-hoje';
     map.addSource(f.id, RASTER([f.url], esri ? 'Imagens © Esri, Maxar' : 'Sentinel-2 cloudless © EOX (dados Copernicus)', esri ? 19 : 15));
@@ -588,6 +634,13 @@ async function openTimelapse(lng, lat) {
       paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 450 }, 'raster-fade-duration': 0 } }, 'fora-fill');
   }
   map.addSource('src-tl', { type: 'geojson', data: EMPTY });
+  map.addSource('src-tl-def', { type: 'geojson', data: EMPTY });
+  map.addLayer({ id: 'tl-def-fill', type: 'fill', source: 'src-tl-def', filter: ['get', 'novo'], paint: {
+    'fill-color': COLOR.deforestation,
+    'fill-opacity': ['interpolate', ['linear'], ['get', 'ha'], 0, 0.03, 50, 0.1, 300, 0.2, 1500, 0.32] } });
+  map.addLayer({ id: 'tl-def', type: 'line', source: 'src-tl-def', filter: ['get', 'novo'], paint: {
+    'line-color': COLOR.deforestation, 'line-width': 1,
+    'line-opacity': ['interpolate', ['linear'], ['get', 'ha'], 0, 0.15, 300, 0.55] } });
   map.addLayer({ id: 'tl-mine', type: 'line', source: 'src-tl', paint: {
     'line-color': ['case', ['get', 'novo'], COLOR.clarao, COLOR.mining],
     'line-width': ['case', ['get', 'novo'], 2.4, 1.4], 'line-opacity': 0.9 } });
@@ -595,7 +648,8 @@ async function openTimelapse(lng, lat) {
   for (const id of RADAR_IDS) map.setLayoutProperty(id, 'visibility', 'none');
   for (const m of state.pins) m.getElement().style.display = 'none';
   $$('.maplibregl-popup').forEach((el) => el.remove());
-  map.flyTo({ center: [lng, lat], zoom: 13, speed: 1.6 });
+  const zoom = state.on.deforestation ? (kind === 'mining' ? 12 : 11.3) : 13;
+  map.flyTo({ center: [lng, lat], zoom, speed: 1.6 });
   const ticks = $('#tl-ticks');
   ticks.innerHTML = '';
   TL_FRAMES.forEach((f, i) => {
@@ -606,39 +660,75 @@ async function openTimelapse(lng, lat) {
   });
   $('#tl').hidden = false;
   document.body.classList.add('tl-on');
+  updateBase();
+  // já começa a baixar a perda de todos os anos, para o play não travar
+  if (state.on.deforestation) for (const y of state.manifest.layers?.deforestation?.loss_years || []) if (y >= TL_FRAMES[0].y) tlLoss(state.tl, y);
   tlShow(0);
   tlPlay();
   syncURL();
 }
 
-function tlShow(i) {
+async function tlShow(i) {
   const T = state.tl;
   if (!T) return;
   T.i = i;
+  const seq = ++T.seq;
   const f = TL_FRAMES[i];
-  TL_FRAMES.forEach((g, k) => map.setPaintProperty(g.id, 'raster-opacity', k === i ? 1 : 0));
   const isLast = i === TL_FRAMES.length - 1;
-  const prevY = i > 0 ? TL_FRAMES[i - 1].y : 0;
-  const isNew = (n) => n.yr > prevY && n.yr >= 2019;   // 2018 é a linha de base do mapeamento
-  const upto = T.near.filter((n) => n.yr <= f.y);
-  map.getSource('src-tl').setData({ type: 'FeatureCollection', features: upto.map((n) => detSquare(n, isNew(n))) });
+  const [a, b] = tlWindow(i);
+  TL_FRAMES.forEach((g, k) => map.setPaintProperty(g.id, 'raster-opacity', k === i ? 1 : 0));
   $('#tl-year').textContent = f.label;
-  const total = upto.reduce((a, n) => a + n.ha, 0);
-  const nov = upto.filter(isNew).reduce((a, n) => a + n.ha, 0);
-  const when = isLast ? `depois de ${prevY}` : prevY + 1 === f.y ? `em ${f.y}` : `entre ${prevY + 1} e ${f.y}`;
-  let note;
-  if (f.y < 2018) note = 'O mapeamento de garimpo começa em 2018; aqui é como a área estava antes.';
-  else if (!upto.length) note = `Nenhum garimpo mapeado aqui até ${f.y}.`;
-  else note = `${haTxt(total)} de garimpo mapeado em volta${nov ? `; ${haTxt(nov)} surgiram ${when}, em branco` : ''}.`;
-  $('#tl-note').textContent = `${note} ${isLast ? 'Imagem mais recente disponível (Esri).' : 'Mosaico Sentinel-2 do ano (EOX).'}`;
-  $$('#tl-ticks button').forEach((b, k) => b.setAttribute('aria-pressed', String(k === i)));
+  $$('#tl-ticks button').forEach((btn, k) => btn.setAttribute('aria-pressed', String(k === i)));
+  const parts = [];
+
+  // garimpo
+  if (state.on.mining) {
+    const isNew = (n) => n.yr >= a && n.yr <= b && n.yr >= 2019;   // 2018 é a linha de base do mapeamento
+    const upto = T.near.filter((n) => n.yr <= f.y);
+    map.getSource('src-tl').setData({ type: 'FeatureCollection', features: upto.map((n) => detSquare(n, isNew(n))) });
+    const total = upto.reduce((s, n) => s + n.ha, 0);
+    const nov = upto.filter(isNew).reduce((s, n) => s + n.ha, 0);
+    if (f.y < 2018) parts.push('O mapeamento de garimpo começa em 2018.');
+    else if (!upto.length) parts.push(`Nenhum garimpo mapeado aqui até ${f.y}.`);
+    else parts.push(`${haTxt(total)} de garimpo mapeado em volta${nov ? `; ${haTxt(nov)} surgiram ${spanTxt(a, Math.min(b, NOW_YEAR))} (contorno branco)` : ''}.`);
+  } else map.getSource('src-tl').setData(EMPTY);
+
+  // floresta derrubada
+  if (state.on.deforestation) {
+    const lastLoss = Math.max(...(state.manifest.layers?.deforestation?.loss_years || [0]));
+    const bb = Math.min(b, lastLoss);
+    const [now, before] = await Promise.all([tlDefSum(T, a, bb), tlDefSum(T, TL_FRAMES[0].y, a - 1)]);
+    if (seq !== T.seq || state.tl !== T) return;
+    const geo = now.geo || before.geo;
+    const feats = [];
+    if (geo) {
+      const keys = new Set([...now.sum.keys(), ...before.sum.keys()]);
+      for (const k of keys) {
+        const [x, y] = k.split(',').map(Number);
+        const x0 = geo.ox + x * geo.cs, y0 = geo.oy + y * geo.cs, x1 = x0 + geo.cs, y1 = y0 + geo.cs;
+        const ha = now.sum.get(k) || 0;
+        feats.push({ type: 'Feature', properties: { ha, novo: ha > 0 },
+          geometry: { type: 'Polygon', coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] } });
+      }
+    }
+    map.getSource('src-tl-def').setData({ type: 'FeatureCollection', features: feats });
+    const nowHa = [...now.sum.values()].reduce((s, v) => s + v, 0);
+    const prevHa = [...before.sum.values()].reduce((s, v) => s + v, 0);
+    if (!now.years.length) parts.push(`A perda anual de floresta ainda não saiu para ${b}.`);
+    else parts.push(nowHa
+      ? `${haTxt(nowHa)} de floresta derrubada ${spanTxt(a, bb)} em volta; quanto mais amarelo o quadro de ~5 km, mais perda${prevHa ? `. Antes disso, desde ${TL_FRAMES[0].y}: ${haTxt(prevHa)}` : ''}.`
+      : `Nenhuma floresta derrubada ${spanTxt(a, bb)} em volta${prevHa ? `; ${haTxt(prevHa)} desde ${TL_FRAMES[0].y}` : ''}.`);
+  } else map.getSource('src-tl-def').setData(EMPTY);
+
+  parts.push(isLast ? 'Imagem mais recente disponível (Esri).' : `Mosaico Sentinel-2 sem nuvens de ${f.y} (EOX).`);
+  $('#tl-note').textContent = parts.join(' ');
 }
 
 function tlPlay() {
   const T = state.tl;
   if (!T) return;
   clearInterval(T.timer);
-  T.timer = setInterval(() => tlShow((T.i + 1) % TL_FRAMES.length), 1700);
+  T.timer = setInterval(() => tlShow((T.i + 1) % TL_FRAMES.length), 1900);
   $('#tl-play span').textContent = '❚❚';
   $('#tl-play').setAttribute('aria-label', 'Pausar');
 }
@@ -656,18 +746,20 @@ function closeTimelapse() {
   const T = state.tl;
   if (!T) return;
   clearInterval(T.timer);
+  for (const id of TL_LAYERS) map.removeLayer(id);
+  map.removeSource('src-tl');
+  map.removeSource('src-tl-def');
   for (const f of TL_FRAMES) {
     map.removeLayer(f.id);
     map.removeSource(f.id);
   }
-  map.removeLayer('tl-mine');
-  map.removeSource('src-tl');
   for (const l of LAYERS) for (const id of [`lyr-${l}`, `lyr-${l}-edge`]) map.setLayoutProperty(id, 'visibility', 'visible');
   for (const id of RADAR_IDS) map.setLayoutProperty(id, 'visibility', 'visible');
   for (const m of state.pins) m.getElement().style.display = '';
   state.tl = null;
   $('#tl').hidden = true;
   document.body.classList.remove('tl-on');
+  updateBase();
   syncURL();
 }
 
@@ -700,6 +792,8 @@ function drawCharts() {
     const cur = sel ? series[sel] : null;
     const div = document.createElement('div');
     div.className = 'chart';
+    div.dataset.layer = l;
+    div.hidden = !state.on[l];
     div.innerHTML = `<div class="ttl"><span><b>${title}</b>${foot ? `, ${foot}` : ''}</span><b>${cur ? f(cur.v) : ''}</b></div>`;
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -738,6 +832,7 @@ function setMode(mode) {
   state.mode = mode;
   document.body.dataset.mode = mode;
   if (mode === 'year') state.year = NOW_YEAR;
+  if (mode === 'history') state.follow = true;
   $$('#modes button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
   $('#timeline').hidden = mode !== 'history';
   $('#cumulative-opt').hidden = mode !== 'history';
@@ -760,8 +855,13 @@ function setYear(y) {
 }
 
 function syncYearUI() {
-  $('#year').value = state.year;
+  const [a, b] = yearBounds();
+  const yr = $('#year');
+  yr.min = a; yr.max = b;
+  yr.value = state.year;
   $('#year-label').textContent = state.year;
+  $('#year-min').textContent = a;
+  $('#year-max').textContent = b;
 }
 
 function syncURL() {
@@ -769,54 +869,129 @@ function syncURL() {
   if (state.mode !== 'week') q.set('modo', state.mode);
   if (state.tl) q.set('evolucao', `${state.tl.lng.toFixed(4)},${state.tl.lat.toFixed(4)}`);
   if (state.mode === 'history') q.set('ano', state.year);
-  if (state.base !== 'sat') q.set('fundo', state.base);
+  if (!state.on.deforestation || !state.on.mining) q.set('ver', state.on.mining ? 'garimpo' : 'desmatamento');
+  if (state.base === 'dark') q.set('fundo', 'mapa');
+  else if (state.mode !== 'history' && state.imgYear) q.set('imagem', state.imgYear);
   const s = q.toString();
   history.replaceState(null, '', s ? `?${s}` : location.pathname);
 }
 
-function setBase(b) {
-  state.base = b;
-  $$('#basemaps button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.base === b)));
-  updateBase();
-  applyPaint();
-  syncURL();
+// ------------------------------------------------------------------ imagem de satélite por ano
+// Fora do Histórico, o visitante escolhe o ano da imagem. No Histórico, a imagem
+// acompanha o ano escolhido na régua (o mosaico mais próximo que não seja posterior).
+const IMG_SEQ = [...TL_YEARS, 'hoje'];
+
+function currentImage() {
+  if (state.base === 'dark') return { key: 'mapa', note: 'Mapa simples, sem imagem de satélite.' };
+  if (state.mode === 'history' && state.follow) {
+    const want = state.year, last = TL_YEARS[TL_YEARS.length - 1];
+    if (want > last) return { key: 'hoje', note: `Ainda não há mosaico anual de ${want}; esta é a imagem mais recente (Esri).` };
+    const av = TL_YEARS.filter((k) => k <= want);
+    if (!av.length) return { key: 'hoje', note: `Não há imagem de ${want}: os mosaicos anuais começam em ${TL_YEARS[0]}. Esta é a imagem atual (Esri).` };
+    const y = Math.max(...av);
+    return { key: y, note: y === want ? `Mosaico Sentinel-2 de ${y}: a imagem acompanha o ano do histórico.` : `Não há mosaico de ${want}; este é o de ${y}.` };
+  }
+  if (state.imgYear) return { key: state.imgYear, note: `Mosaico Sentinel-2 sem nuvens de ${state.imgYear} (EOX).` };
+  return { key: 'hoje', note: 'Imagem mais recente (Esri).' };
 }
 
 function updateBase() {
-  const b = state.base;
-  let note = '';
-  let showS2 = false;
-  if (b === 's2') {
-    const y = state.mode === 'history' || state.mode === 'year' ? state.year : NOW_YEAR;
-    const avail = Object.keys(EOX_YEARS).map(Number).filter((k) => k <= y);
-    if (avail.length) {
-      const pick = Math.max(...avail);
-      map.getSource('s2')?.setTiles([eoxUrl(pick)]);
-      note = `Mosaico Sentinel-2 de ${pick}${pick !== y ? `, o mais próximo de ${y}` : ''}.`;
-      showS2 = true;
-    } else {
-      note = `Não há mosaico de imagem para ${y}; mostrando a imagem atual.`;
-    }
-  } else if (b === 'sat') {
-    note = 'Ao aproximar, as camadas ficam transparentes e só o contorno continua, para a imagem aparecer.';
+  const img = currentImage();
+  const s2 = typeof img.key === 'number';
+  // uma camada por ano (trocar os tiles de uma fonte só quebra o MapLibre com tiles em voo)
+  if (s2 && !map.getLayer(`base-s2-${img.key}`)) {
+    map.addSource(`s2-${img.key}`, RASTER([eoxUrl(img.key)], 'Sentinel-2 cloudless © <a href="https://s2maps.eu">EOX</a> (dados Copernicus)', 15));
+    map.addLayer({ id: `base-s2-${img.key}`, type: 'raster', source: `s2-${img.key}` }, 'fora-fill');
   }
-  map.setLayoutProperty('base-dark', 'visibility', b === 'dark' ? 'visible' : 'none');
-  map.setLayoutProperty('base-sat', 'visibility', b === 'sat' || (b === 's2' && !showS2) ? 'visible' : 'none');
-  map.setLayoutProperty('base-s2', 'visibility', showS2 ? 'visible' : 'none');
+  for (const y of TL_YEARS) if (map.getLayer(`base-s2-${y}`)) map.setLayoutProperty(`base-s2-${y}`, 'visibility', img.key === y ? 'visible' : 'none');
+  map.setLayoutProperty('base-dark', 'visibility', img.key === 'mapa' ? 'visible' : 'none');
+  map.setLayoutProperty('base-sat', 'visibility', img.key === 'hoje' ? 'visible' : 'none');
+  let note = img.note;
+  if (img.key !== 'mapa' && state.mode !== 'history') note += ' No Histórico, a imagem muda junto com o ano.';
   $('#base-note').textContent = note;
+  $$('#imgs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.img === String(img.key))));
+  $('#img-badge').hidden = img.key === 'mapa' || !!state.tl;
+  $('#img-year').textContent = s2 ? img.key : 'Hoje';
+  $('#img-src').textContent = s2 ? 'Sentinel-2' : 'Esri';
+  const i = IMG_SEQ.indexOf(img.key);
+  $('#img-prev').disabled = i <= 0;
+  $('#img-next').disabled = i >= IMG_SEQ.length - 1;
 }
 
-function firstDataYear() {
+function pickImage(key) {
+  const wasDark = state.base === 'dark';
+  if (key === 'mapa') state.base = 'dark';
+  else {
+    state.base = 'sat';
+    const y = key === 'hoje' ? null : +key;
+    if (state.mode === 'history') {
+      state.follow = y != null;
+      if (y != null && state.year !== y) {
+        const [a, b] = yearBounds();
+        state.year = Math.min(b, Math.max(a, y));
+        syncYearUI();
+        render();
+      }
+    } else state.imgYear = y;
+  }
+  updateBase();
+  if (wasDark !== (state.base === 'dark')) applyPaint();
+  syncURL();
+}
+
+function stepImage(dir) {
+  const i = IMG_SEQ.indexOf(currentImage().key);
+  const j = Math.min(IMG_SEQ.length - 1, Math.max(0, i + dir));
+  if (j !== i) pickImage(String(IMG_SEQ[j]));
+}
+
+function buildImageChips() {
+  const box = $('#imgs');
+  box.innerHTML = '';
+  for (const k of [...IMG_SEQ].reverse().concat('mapa')) {
+    const b = document.createElement('button');
+    b.dataset.img = String(k);
+    b.textContent = k === 'hoje' ? 'Hoje' : k === 'mapa' ? 'Sem imagem' : String(k);
+    if (k === 'mapa') b.className = 'wide';
+    b.addEventListener('click', () => pickImage(String(k)));
+    box.appendChild(b);
+  }
+}
+
+// ------------------------------------------------------------------ o que mostrar
+function yearBounds() {
   const L = state.manifest.layers || {};
-  const ys = [...(L.deforestation?.loss_years || []), ...(L.mining?.years || [])];
-  return ys.length ? Math.min(...ys) : 2001;
+  const ys = [];
+  if (state.on.deforestation) ys.push(...(L.deforestation?.loss_years || []), ...(L.deforestation?.alert_years || []));
+  if (state.on.mining) ys.push(...(L.mining?.years || []));
+  return [ys.length ? Math.min(...ys) : 2001, NOW_YEAR];
+}
+
+function setShow(v) {
+  state.on.deforestation = v !== 'mining';
+  state.on.mining = v !== 'deforestation';
+  layersChanged();
+}
+
+function layersChanged() {
+  const v = state.on.deforestation && state.on.mining ? 'both' : state.on.deforestation ? 'deforestation' : state.on.mining ? 'mining' : '';
+  $$('#show button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.show === v)));
+  $$('.layer[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(state.on[b.dataset.layer])));
+  LAYERS.forEach(drawLayer);
+  if (state.mode !== 'radar') writeLede();
+  $$('#charts .chart').forEach((c) => { c.hidden = !state.on[c.dataset.layer]; });
+  const [a] = yearBounds();
+  if (state.mode === 'history' && state.year < a) { stopPlay(); setYear(a); }
+  else { syncYearUI(); syncURL(); }
+  if (state.tl) tlShow(state.tl.i);
 }
 
 function play() {
   if (state.playing) return stopPlay();
   $('#play span').textContent = '❚❚';
   $('#play').setAttribute('aria-label', 'Pausar');
-  let y = state.year >= NOW_YEAR ? firstDataYear() : state.year;
+  const first = yearBounds()[0];
+  let y = state.year >= NOW_YEAR || state.year < first ? first : state.year;
   setYear(y);
   state.playing = setInterval(() => {
     y += 1;
@@ -844,13 +1019,14 @@ async function buildOutside() {
 
 function bind() {
   $$('#modes button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
-  $$('#basemaps button').forEach((b) => b.addEventListener('click', () => setBase(b.dataset.base)));
+  $$('#show button').forEach((b) => b.addEventListener('click', () => setShow(b.dataset.show)));
   $$('.layer[data-layer]').forEach((btn) => btn.addEventListener('click', () => {
     const l = btn.dataset.layer;
     state.on[l] = !state.on[l];
-    btn.setAttribute('aria-pressed', String(state.on[l]));
-    drawLayer(l);
+    layersChanged();
   }));
+  $('#img-prev').addEventListener('click', () => stepImage(-1));
+  $('#img-next').addEventListener('click', () => stepImage(1));
   $$('.layer[data-radar]').forEach((btn) => btn.addEventListener('click', () => {
     const k = btn.dataset.radar;
     state.radarOn[k] = !state.radarOn[k];
@@ -859,13 +1035,12 @@ function bind() {
   }));
   $('#cumulative').addEventListener('change', (e) => { state.cumulative = e.target.checked; render(); });
   const yr = $('#year');
-  yr.min = FIRST_YEAR; yr.max = NOW_YEAR;
   yr.addEventListener('input', () => { $('#year-label').textContent = yr.value; });
   yr.addEventListener('change', () => setYear(+yr.value));
   $('#play').addEventListener('click', play);
   document.addEventListener('click', (e) => {
     const b = e.target.closest('.tl-open');
-    if (b) openTimelapse(+b.dataset.lng, +b.dataset.lat);
+    if (b) openTimelapse(+b.dataset.lng, +b.dataset.lat, b.dataset.kind);
   });
   $('#tl-play').addEventListener('click', () => (state.tl?.timer ? tlPause() : tlPlay()));
   $('#tl-close').addEventListener('click', closeTimelapse);
@@ -883,11 +1058,20 @@ function bind() {
   });
   // parâmetros na URL: ?modo=history&ano=2019&fundo=sat
   const q = new URLSearchParams(location.search);
-  if (q.get('ano')) state.year = Math.min(NOW_YEAR, Math.max(FIRST_YEAR, +q.get('ano')));
+  const ver = q.get('ver');
+  if (ver === 'garimpo' || ver === 'desmatamento') {
+    state.on.deforestation = ver === 'desmatamento';
+    state.on.mining = ver === 'garimpo';
+    $$('#show button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.show === (ver === 'garimpo' ? 'mining' : 'deforestation'))));
+    $$('.layer[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(state.on[b.dataset.layer])));
+  }
+  if (q.get('ano')) { const [a, b] = yearBounds(); state.year = Math.min(b, Math.max(a, +q.get('ano'))); }
   const evo = (q.get('evolucao') || '').split(',').map(Number);
   if (evo.length === 2 && evo.every(Number.isFinite)) setTimeout(() => openTimelapse(evo[0], evo[1]), 300);
-  const fundo = q.get('fundo');
-  if (fundo && ['dark', 'sat', 's2'].includes(fundo)) setBase(fundo);
+  const fundo = q.get('fundo'), imagem = +q.get('imagem');
+  if (fundo === 'mapa' || fundo === 'dark') pickImage('mapa');
+  else if (TL_YEARS.includes(imagem)) pickImage(String(imagem));
+  else if (fundo === 's2') pickImage(String(TL_YEARS[TL_YEARS.length - 1]));
   const modo = q.get('modo');
   if (modo && MODES.includes(modo) && modo !== 'week') {
     state.mode = '';
@@ -908,6 +1092,8 @@ async function init() {
     ? `Alertas de desmatamento atualizados em ${fmtIso(L.deforestation.alerts_updated)}; garimpo em ${L.mining?.updated ? fmtIso(L.mining.updated) : '–'}.`
     : 'Ainda sem dados publicados.';
   addDataLayers();
+  buildImageChips();
+  syncYearUI();
   updateBase();
   buildOutside();
   if (!bind()) render();
