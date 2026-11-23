@@ -26,7 +26,7 @@ const state = {
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
   playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
-  imgYear: null, follow: true,
+  imgYear: null, follow: true, badYears: new Map(),
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -560,6 +560,83 @@ function inRing(x, y, ring) {
   return ins;
 }
 
+// ------------------------------------------------------------------ imagem ruim? pula o ano
+// O mosaico "sem nuvens" ainda tem nuvem, faixa sem dado ou borrão em alguns lugares.
+// Baixa os 4 tiles (zoom 12, ~20 km) em volta do ponto e mede a imagem: muito branco
+// sem cor = nuvem; muito preto = sem dado; quase sem variação = borrão/névoa.
+const QUALITY = new Map();
+
+function tileFrac(lng, lat, z) {
+  const n = 2 ** z, r = (lat * Math.PI) / 180;
+  return [((lng + 180) / 360) * n, ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n];
+}
+
+async function tileStats(url) {
+  const res = await fetch(url, { mode: 'cors' });
+  if (!res.ok) throw new Error(res.status);
+  const bmp = await createImageBitmap(await res.blob());
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(bmp, 0, 0, 64, 64);
+  return g.getImageData(0, 0, 64, 64).data;
+}
+
+function imageQuality(year, lng, lat) {
+  const z = 12;
+  const [fx, fy] = tileFrac(lng, lat, z);
+  const x0 = Math.floor(fx - 0.5), y0 = Math.floor(fy - 0.5);
+  const key = `${year}/${x0}/${y0}`;
+  if (!QUALITY.has(key)) {
+    const base = `https://tiles.maps.eox.at/wmts/1.0.0/${EOX_YEARS[year]}/default/g/${z}`;
+    const urls = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([dx, dy]) => `${base}/${y0 + dy}/${x0 + dx}.jpg`);
+    QUALITY.set(key, Promise.all(urls.map(tileStats)).then((tiles) => {
+      let n = 0, cloud = 0, empty = 0, s = 0, s2 = 0;
+      for (const d of tiles) {
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], gg = d[i + 1], b = d[i + 2];
+          const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), lum = 0.3 * r + 0.59 * gg + 0.11 * b;
+          n += 1; s += lum; s2 += lum * lum;
+          if (mn > 175 && mx - mn < 40) cloud += 1;
+          if (mx < 8) empty += 1;
+        }
+      }
+      const mean = s / n, sd = Math.sqrt(Math.max(0, s2 / n - mean * mean));
+      const q = { cloud: cloud / n, empty: empty / n, mean, sd };
+      q.bad = q.cloud > 0.3 || q.empty > 0.2 || sd < 4 || (mean > 165 && sd < 22);
+      q.why = q.empty > 0.2 ? 'falha na imagem' : q.cloud > 0.3 || mean > 165 ? 'nuvem' : 'imagem borrada';
+      return q;
+    }).catch(() => ({ bad: false })));   // se não der para conferir, mantém o ano
+  }
+  return QUALITY.get(key);
+}
+
+// anos ruins num ponto (o mosaico de "Hoje" é da Esri e fica sempre)
+async function badYearsAt(lng, lat) {
+  const qs = await Promise.all(TL_YEARS.map((y) => imageQuality(y, lng, lat)));
+  const out = new Map();
+  TL_YEARS.forEach((y, i) => { if (qs[i].bad) out.set(y, qs[i].why); });
+  return out;
+}
+
+// no mapa: com zoom de perto, confere o centro e tira os anos ruins do seletor
+let qualityTimer = null;
+function checkCenterQuality() {
+  clearTimeout(qualityTimer);
+  qualityTimer = setTimeout(async () => {
+    if (map.getZoom() < 9) {
+      if (state.badYears.size) { state.badYears = new Map(); updateBase(); }
+      return;
+    }
+    const c = map.getCenter();
+    const bad = await badYearsAt(c.lng, c.lat);
+    const same = bad.size === state.badYears.size && [...bad.keys()].every((k) => state.badYears.has(k));
+    if (same) return;
+    state.badYears = bad;
+    updateBase();
+  }, 500);
+}
+
 // ------------------------------------------------------------------ evolução por satélite
 // Roda os mosaicos anuais Sentinel-2 (EOX) e por fim a imagem atual (Esri) em volta
 // de um ponto. Por cima, o que foi mapeado em cada intervalo: garimpo (quadrados) e
@@ -578,9 +655,19 @@ function detSquare(n, novo) {
 
 // janela de anos que cada quadro representa: do quadro anterior (exclusive) até ele
 function tlWindow(i) {
+  const bad = state.tl?.bad || new Map();
   const f = TL_FRAMES[i];
-  const a = i === 0 ? f.y : TL_FRAMES[i - 1].y + 1;
-  return [a, f.y];
+  let k = i - 1;
+  while (k >= 0 && bad.has(TL_FRAMES[k].y)) k -= 1;
+  return [k < 0 ? f.y : TL_FRAMES[k].y + 1, f.y];
+}
+function tlNext(i) {
+  const bad = state.tl?.bad || new Map();
+  for (let s = 1; s <= TL_FRAMES.length; s++) {
+    const j = (i + s) % TL_FRAMES.length;
+    if (!bad.has(TL_FRAMES[j].y) || TL_FRAMES[j].id === 'tl-hoje') return j;
+  }
+  return TL_FRAMES.length - 1;
 }
 const spanTxt = (a, b) => (a >= b ? `em ${b}` : `entre ${a} e ${b}`);
 
@@ -626,7 +713,7 @@ async function openTimelapse(lng, lat, kind) {
     const x = d[i] / 1000, y = d[i + 1] / 1000;
     if (Math.abs(x - lng) < 0.16 && Math.abs(y - lat) < 0.16) near.push({ x, y, yr: Math.floor(d[i + 2] / 10), ha: d[i + 4] });
   }
-  state.tl = { lng, lat, near, i: 0, timer: null, loss: new Map(), seq: 0 };
+  state.tl = { lng, lat, near, i: 0, timer: null, loss: new Map(), seq: 0, bad: new Map() };
   for (const f of TL_FRAMES) {
     const esri = f.id === 'tl-hoje';
     map.addSource(f.id, RASTER([f.url], esri ? 'Imagens © Esri, Maxar' : 'Sentinel-2 cloudless © EOX (dados Copernicus)', esri ? 19 : 15));
@@ -663,6 +750,13 @@ async function openTimelapse(lng, lat, kind) {
   updateBase();
   // já começa a baixar a perda de todos os anos, para o play não travar
   if (state.on.deforestation) for (const y of state.manifest.layers?.deforestation?.loss_years || []) if (y >= TL_FRAMES[0].y) tlLoss(state.tl, y);
+  const T = state.tl;
+  badYearsAt(lng, lat).then((bad) => {
+    if (state.tl !== T || !bad.size) return;
+    T.bad = bad;
+    $$('#tl-ticks button').forEach((btn, k) => { btn.hidden = bad.has(TL_FRAMES[k].y) && TL_FRAMES[k].id !== 'tl-hoje'; });
+    tlShow(bad.has(TL_FRAMES[T.i].y) ? tlNext(T.i) : T.i);
+  });
   tlShow(0);
   tlPlay();
   syncURL();
@@ -721,6 +815,11 @@ async function tlShow(i) {
   } else map.getSource('src-tl-def').setData(EMPTY);
 
   parts.push(isLast ? 'Imagem mais recente disponível (Esri).' : `Mosaico Sentinel-2 sem nuvens de ${f.y} (EOX).`);
+  if (T.bad.size) {
+    const ys = [...T.bad.keys()];
+    const lista = ys.length > 1 ? `${ys.slice(0, -1).join(', ')} e ${ys[ys.length - 1]}` : String(ys[0]);
+    parts.push(`${ys.length > 1 ? 'Os anos' : 'O ano'} ${lista} ${ys.length > 1 ? 'ficaram' : 'ficou'} de fora: imagem ruim neste ponto (${[...new Set(T.bad.values())].join(', ')}).`);
+  }
   $('#tl-note').textContent = parts.join(' ');
 }
 
@@ -728,7 +827,7 @@ function tlPlay() {
   const T = state.tl;
   if (!T) return;
   clearInterval(T.timer);
-  T.timer = setInterval(() => tlShow((T.i + 1) % TL_FRAMES.length), 1900);
+  T.timer = setInterval(() => tlShow(tlNext(T.i)), 1900);
   $('#tl-play span').textContent = '❚❚';
   $('#tl-play').setAttribute('aria-label', 'Pausar');
 }
@@ -886,12 +985,19 @@ function currentImage() {
   if (state.mode === 'history' && state.follow) {
     const want = state.year, last = TL_YEARS[TL_YEARS.length - 1];
     if (want > last) return { key: 'hoje', note: `Ainda não há mosaico anual de ${want}; esta é a imagem mais recente (Esri).` };
-    const av = TL_YEARS.filter((k) => k <= want);
-    if (!av.length) return { key: 'hoje', note: `Não há imagem de ${want}: os mosaicos anuais começam em ${TL_YEARS[0]}. Esta é a imagem atual (Esri).` };
+    const av = TL_YEARS.filter((k) => k <= want && !state.badYears.has(k));
+    const why = state.badYears.get(want);
+    if (!av.length) return { key: 'hoje', note: why ? `A imagem de ${want} está ruim aqui (${why}); esta é a imagem atual (Esri).` : `Não há imagem de ${want}: os mosaicos anuais começam em ${TL_YEARS[0]}. Esta é a imagem atual (Esri).` };
     const y = Math.max(...av);
-    return { key: y, note: y === want ? `Mosaico Sentinel-2 de ${y}: a imagem acompanha o ano do histórico.` : `Não há mosaico de ${want}; este é o de ${y}.` };
+    return { key: y, note: y === want ? `Mosaico Sentinel-2 de ${y}: a imagem acompanha o ano do histórico.`
+      : why ? `A imagem de ${want} está ruim aqui (${why}); este é o mosaico de ${y}.` : `Não há mosaico de ${want}; este é o de ${y}.` };
   }
-  if (state.imgYear) return { key: state.imgYear, note: `Mosaico Sentinel-2 sem nuvens de ${state.imgYear} (EOX).` };
+  if (state.imgYear) {
+    const why = state.badYears.get(state.imgYear);
+    if (!why) return { key: state.imgYear, note: `Mosaico Sentinel-2 sem nuvens de ${state.imgYear} (EOX).` };
+    const alt = TL_YEARS.find((k) => k > state.imgYear && !state.badYears.has(k));
+    return { key: alt || 'hoje', note: `A imagem de ${state.imgYear} está ruim aqui (${why}); mostrando ${alt || 'a atual'}.` };
+  }
   return { key: 'hoje', note: 'Imagem mais recente (Esri).' };
 }
 
@@ -909,13 +1015,19 @@ function updateBase() {
   let note = img.note;
   if (img.key !== 'mapa' && state.mode !== 'history') note += ' No Histórico, a imagem muda junto com o ano.';
   $('#base-note').textContent = note;
-  $$('#imgs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.img === String(img.key))));
+  $$('#imgs button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.img === String(img.key)));
+    const why = state.badYears.get(+b.dataset.img);
+    b.disabled = !!why;
+    b.title = why ? `Imagem ruim nesta área (${why})` : '';
+  });
   $('#img-badge').hidden = img.key === 'mapa' || !!state.tl;
   $('#img-year').textContent = s2 ? img.key : 'Hoje';
   $('#img-src').textContent = s2 ? 'Sentinel-2' : 'Esri';
-  const i = IMG_SEQ.indexOf(img.key);
+  const seq = IMG_SEQ.filter((k) => !state.badYears.has(k));
+  const i = seq.indexOf(img.key);
   $('#img-prev').disabled = i <= 0;
-  $('#img-next').disabled = i >= IMG_SEQ.length - 1;
+  $('#img-next').disabled = i >= seq.length - 1;
 }
 
 function pickImage(key) {
@@ -940,9 +1052,10 @@ function pickImage(key) {
 }
 
 function stepImage(dir) {
-  const i = IMG_SEQ.indexOf(currentImage().key);
-  const j = Math.min(IMG_SEQ.length - 1, Math.max(0, i + dir));
-  if (j !== i) pickImage(String(IMG_SEQ[j]));
+  const seq = IMG_SEQ.filter((k) => !state.badYears.has(k));
+  const i = seq.indexOf(currentImage().key);
+  const j = Math.min(seq.length - 1, Math.max(0, i + dir));
+  if (j !== i) pickImage(String(seq[j]));
 }
 
 function buildImageChips() {
@@ -1050,6 +1163,7 @@ function bind() {
     $('#sheet-handle').setAttribute('aria-expanded', String(!closed));
   });
   // reagrega as células quando o zoom muda o tamanho mínimo visível
+  map.on('moveend', checkCenterQuality);
   map.on('zoomend', () => {
     for (const l of LAYERS) {
       const r = state.results[l];

@@ -383,3 +383,5 @@ body.tl-on #timeline { display: none; }
   #img-badge b { font-size: 20px; }
   #loading { top: 80px; }
 }
+
+.chips button:disabled { text-decoration: line-through; opacity: .38; cursor: not-allowed; background: none; }
