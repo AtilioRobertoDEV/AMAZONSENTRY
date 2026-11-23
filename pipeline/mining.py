@@ -69,15 +69,14 @@ def pick_key(props_list, candidates):
 
 
 # ------------------------------------------------------------------ checagem no chão
-# O detector do Amazon Mining Watch às vezes marca banco de areia e praia de rio
-# como garimpo. Cada detecção é conferida com dados independentes: só fica se,
-# FORA do leito do rio (água vista pelo JRC 1984-2021, com 30 m de margem),
-# houver floresta perdida (Hansen), alerta GLAD recente ou terra aberta.
-CHECK_VERSION = "v3-loss3-glad3-open5-rio20"
+# Cada detecção do Amazon Mining Watch é conferida com dados independentes. Fica
+# se estiver no leito de um rio (pode ser draga) ou se, fora d'água, houver
+# floresta perdida (Hansen), alerta GLAD recente ou terra aberta. Sai o que cai em
+# floresta intacta sem nenhum desses sinais.
+CHECK_VERSION = "v4-dragas"
 MIN_LOSS = 0.03
 MIN_GLAD = 0.03
 MIN_OPEN = 0.05
-MIN_OPEN_RIO = 0.20
 
 
 def _tile_of(lon, lat):
@@ -149,8 +148,9 @@ def ground_check(geoms, idx, tmp: Path):
                 alert = max(alert, (dry & (a[f"g{k}"] >= 2)).sum() / n)
             opened = (dry & (a["t"] < 30)).sum() / n
             riverside = (water & inside).sum() / n >= 0.05
-            # na beira do rio, um pouco de terra aberta pode ser só praia: aí exige mais
-            ok = loss >= MIN_LOSS or alert >= MIN_GLAD or opened >= (MIN_OPEN_RIO if riverside else MIN_OPEN)
+            # no leito do rio pode ser draga (garimpo de balsa): fica; o que cai fora são
+            # detecções em floresta intacta, sem rio, sem derrubada, sem alerta e sem terra aberta
+            ok = riverside or loss >= MIN_LOSS or alert >= MIN_GLAD or opened >= MIN_OPEN
             why = "ok" if ok else ("leito de rio" if riverside else "sem sinal de abertura")
             out[i] = (ok, why)
             kept += ok

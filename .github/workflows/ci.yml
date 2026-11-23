@@ -23,12 +23,6 @@ jobs:
       - run: pip install -r pipeline/requirements.txt
       - name: Sintaxe
         run: python -m py_compile pipeline/*.py && node --check site/app.js
-      - name: Queimadas ao vivo (NASA FIRMS)
-        working-directory: pipeline
-        run: python fires.py live
-      - name: Histórico de queimadas (um ano, arquivo anual por país)
-        working-directory: pipeline
-        run: python fires.py history --years 2024
       - name: Garimpo (Amazon Mining Watch)
         working-directory: pipeline
         run: python mining.py

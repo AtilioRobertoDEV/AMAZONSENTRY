@@ -121,7 +121,6 @@ h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; font-stretch: 88%; }
 .layer:hover .name { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
 
 .sw { display: inline-block; }
-[data-layer="fires"] .sw { background: var(--brasa); border-radius: 50%; }
 [data-layer="deforestation"] .sw { background: var(--laterita); box-shadow: inset 0 0 0 1px rgba(42, 30, 18, .35); }
 [data-layer="mining"] .sw { background: var(--rejeito); }
 .sw.ring { width: 13px; height: 13px; background: transparent; border: 2.5px solid; }
@@ -286,4 +285,56 @@ footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--regua)
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ------------------------------------------------------------- evolução por satélite */
+.tl-open {
+  margin-top: 10px; width: 100%; appearance: none; cursor: pointer;
+  background: var(--tinta); color: var(--solimoes); border: 0; border-radius: 2px;
+  padding: 8px 10px; font-size: 13px; font-weight: 650; font-stretch: 92%; text-align: left;
+}
+.tl-open:hover { background: #000; }
+#tl {
+  position: absolute; left: var(--rail); right: 0; bottom: 0; z-index: 4;
+  display: grid; grid-template-columns: 44px 1fr auto; gap: 16px; align-items: end;
+  padding: 70px 32px 40px 40px; color: var(--clarao); pointer-events: none;
+  background: linear-gradient(0deg, rgba(27, 20, 15, .88) 0, rgba(27, 20, 15, .6) 55%, rgba(27, 20, 15, 0) 100%);
+}
+#tl > * { pointer-events: auto; }
+#tl-play {
+  width: 44px; height: 44px; border-radius: 50%; border: 1.5px solid var(--clarao); background: rgba(27, 20, 15, .7);
+  color: var(--clarao); cursor: pointer; display: grid; place-items: center; font-size: 13px;
+}
+#tl-play:hover { background: var(--clarao); color: var(--negro); }
+#tl-year {
+  display: block; font-size: 72px; line-height: .8; font-weight: 820; font-stretch: 125%; letter-spacing: -.03em;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .6);
+}
+#tl-note {
+  margin: 10px 0 8px; max-width: 60ch; font-size: 14px; line-height: 1.4;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, .85), 0 0 2px rgba(0, 0, 0, .9);
+}
+#tl-ticks { display: flex; flex-wrap: wrap; gap: 4px; }
+#tl-ticks button {
+  appearance: none; cursor: pointer; border: 1px solid rgba(255, 243, 223, .6); background: rgba(27, 20, 15, .55);
+  color: var(--clarao); font-size: 12px; font-weight: 600; padding: 3px 7px; border-radius: 2px;
+}
+#tl-ticks button[aria-pressed="true"] { background: var(--clarao); color: var(--negro); border-color: var(--clarao); }
+#tl-close {
+  appearance: none; cursor: pointer; background: var(--solimoes); color: var(--tinta); border: 0; border-radius: 2px;
+  padding: 8px 14px; font-weight: 650; font-size: 13px;
+}
+body.tl-on #timeline { display: none; }
+
+/* cinco períodos: Radar IA ocupa o resto da segunda linha */
+#modes .radar-tab { grid-column: span 2; border-right: 0; }
+#modes button:nth-child(-n+3) { border-bottom: 1px solid var(--regua); }
+
+@media (max-width: 760px) {
+  #modes { grid-template-columns: repeat(5, auto); }
+  #modes .radar-tab { grid-column: auto; }
+  #tl { left: 0; right: 0; bottom: 150px; padding: 50px 14px 14px; grid-template-columns: 40px 1fr; }
+  #tl-close { grid-column: 1 / -1; justify-self: end; order: -1; }
+  #tl-year { font-size: 44px; }
+  #tl-note { font-size: 13px; }
 }

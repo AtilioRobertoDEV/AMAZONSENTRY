@@ -37,6 +37,19 @@ jobs:
       - name: Radar IA
         working-directory: pipeline
         run: python radar.py || echo "radar ainda sem dados de floresta"
+      - name: Tirar dados de fogo (camada abandonada)
+        run: |
+          rm -rf data/fires
+          python - <<'PY'
+          import json, pathlib
+          for name in ("manifest.json", "stats.json"):
+              p = pathlib.Path("data") / name
+              if p.exists():
+                  d = json.loads(p.read_text())
+                  (d.get("layers") or {}).pop("fires", None)
+                  d.pop("fires", None)
+                  p.write_text(json.dumps(d, separators=(",", ":"), ensure_ascii=False))
+          PY
       - run: scripts/data-branch.sh publish "garimpo $(date -u +%FT%TZ)"
 
   deploy:
@@ -60,7 +73,7 @@ jobs:
           cp -a site/. _site/
           mkdir -p _site/data
           # dados gerados (sem o cache interno do pipeline)
-          rsync -a --exclude '.git' --exclude '_cache' --exclude 'README.md' data/ _site/data/
+          rsync -a --exclude '.git' --exclude '_cache' --exclude 'README.md' --exclude 'fires' data/ _site/data/
           du -sh _site _site/data
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

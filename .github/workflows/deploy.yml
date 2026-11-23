@@ -33,7 +33,7 @@ jobs:
           cp -a site/. _site/
           mkdir -p _site/data
           # dados gerados (sem o cache interno do pipeline)
-          rsync -a --exclude '.git' --exclude '_cache' --exclude 'README.md' data/ _site/data/
+          rsync -a --exclude '.git' --exclude '_cache' --exclude 'README.md' --exclude 'fires' data/ _site/data/
           du -sh _site _site/data
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

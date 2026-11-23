@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Amazon Sentry: fogo, desmatamento e garimpo no Brasil</title>
-  <meta name="description" content="Mapa de focos de fogo, desmatamento e garimpo no Brasil a partir de satélites, com série histórica e um radar de IA que aponta onde a floresta deve cair em seguida.">
+  <title>Amazon Sentry: floresta perdida e garimpo novo no Brasil</title>
+  <meta name="description" content="Mapa de floresta perdida e garimpo novo no Brasil a partir de satélites, com série histórica, imagens ano a ano e um radar de IA que aponta onde a floresta deve cair em seguida.">
   <meta name="theme-color" content="#1b140f">
   <link rel="preload" href="vendor/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="vendor/maplibre-gl.css">
   <link rel="stylesheet" href="style.css">
 </head>
-<body data-mode="live">
+<body data-mode="week">
   <div id="map" aria-label="Mapa do Brasil"></div>
 
   <aside id="rail" aria-label="Controles do mapa">
@@ -20,12 +20,11 @@
 
     <header id="brand">
       <h1>Amazon <br>Sentry</h1>
-      <p>Fogo, desmatamento e garimpo no Brasil, vistos por satélite.</p>
+      <p>Floresta perdida e garimpo novo no Brasil, vistos por satélite.</p>
     </header>
 
     <nav id="modes" aria-label="Período">
-      <button data-mode="live" aria-pressed="true">Agora</button>
-      <button data-mode="week" aria-pressed="false">7 dias</button>
+      <button data-mode="week" aria-pressed="true">7 dias</button>
       <button data-mode="month" aria-pressed="false">30 dias</button>
       <button data-mode="year" aria-pressed="false">Este ano</button>
       <button data-mode="history" aria-pressed="false">Histórico</button>
@@ -37,21 +36,15 @@
 
       <!-- observação: o que os satélites viram -->
       <section id="observed" aria-label="Camadas">
-        <button class="layer" data-layer="fires" aria-pressed="true">
-          <span class="sw" aria-hidden="true"></span>
-          <span class="name">Focos de fogo</span>
-          <span class="num" data-total>–</span>
-          <span class="note" data-note></span>
-        </button>
         <button class="layer" data-layer="deforestation" aria-pressed="true">
           <span class="sw" aria-hidden="true"></span>
-          <span class="name">Desmatamento</span>
+          <span class="name">Floresta perdida</span>
           <span class="num" data-total>–</span>
           <span class="note" data-note></span>
         </button>
         <button class="layer" data-layer="mining" aria-pressed="true">
           <span class="sw" aria-hidden="true"></span>
-          <span class="name">Garimpo</span>
+          <span class="name">Garimpo novo</span>
           <span class="num" data-total>–</span>
           <span class="note" data-note></span>
         </button>
@@ -91,8 +84,8 @@
       <section id="base" aria-label="Fundo do mapa">
         <h2>Fundo do mapa</h2>
         <div class="seg" id="basemaps">
-          <button data-base="dark" aria-pressed="true">Mapa</button>
-          <button data-base="sat" aria-pressed="false">Satélite</button>
+          <button data-base="sat" aria-pressed="true">Satélite</button>
+          <button data-base="dark" aria-pressed="false">Mapa</button>
           <button data-base="s2" aria-pressed="false" title="Mosaico Sentinel-2 sem nuvens do ano escolhido (2016 em diante)">Imagem do ano</button>
         </div>
         <p id="base-note" class="fine"></p>
@@ -103,8 +96,7 @@
         <details>
           <summary>Fontes e limites</summary>
           <ul class="sources">
-            <li><b>Fogo:</b> NASA FIRMS (VIIRS NOAA-20/21, S-NPP e MODIS). Focos de calor detectados por satélite, atualizados a cada 3 horas.</li>
-            <li><b>Desmatamento:</b> alertas GLAD-L (Landsat, Universidade de Maryland, diários) e perda anual de floresta Hansen/UMD Global Forest Change, 2001 em diante, cobertura arbórea de 30% ou mais. Rios, lagos, bancos de areia e planícies de inundação (várzea e igapó) ficam de fora, usando a água vista pelo JRC Global Surface Water e a altura acima do rio do Copernicus GLO-30 HAND. Desmatamento real dentro da várzea também some do mapa.</li>
+            <li><b>Floresta perdida:</b> alertas GLAD-L (Landsat, Universidade de Maryland, diários) e perda anual de floresta Hansen/UMD Global Forest Change, 2001 em diante, cobertura arbórea de 30% ou mais. Rios, lagos, bancos de areia e planícies de inundação (várzea e igapó) ficam de fora, usando a água vista pelo JRC Global Surface Water e a altura acima do rio do Copernicus GLO-30 HAND. Desmatamento real dentro da várzea também some do mapa.</li>
             <li><b>Garimpo:</b> Amazon Mining Watch (Earth Genome, Pulitzer Center e Amazon Conservation), bacia amazônica, 2018 em diante. CC BY 4.0. Cada detecção é conferida com perda de floresta, alertas GLAD e água do JRC; as que caem só em leito de rio ou praia são descartadas.</li>
             <li><b>Imagens:</b> Esri World Imagery; Sentinel-2 cloudless © EOX.</li>
             <li>O satélite vê a floresta caindo e a terra revirada, não a licença. Saber se é ilegal exige cruzar com autorizações, terras indígenas e unidades de conservação.</li>
@@ -120,6 +112,16 @@
     <input id="year" type="range" min="1985" max="2026" step="1" value="2026" aria-label="Ano">
     <output id="year-label" for="year">2026</output>
   </div>
+
+  <section id="tl" hidden aria-label="Evolução por satélite">
+    <button id="tl-play" aria-label="Pausar"><span aria-hidden="true">❚❚</span></button>
+    <div class="tl-main">
+      <output id="tl-year">2016</output>
+      <p id="tl-note"></p>
+      <div id="tl-ticks" role="group" aria-label="Escolher o ano"></div>
+    </div>
+    <button id="tl-close" aria-label="Fechar a evolução">Fechar</button>
+  </section>
 
   <div id="loading" role="status" hidden>Carregando</div>
 

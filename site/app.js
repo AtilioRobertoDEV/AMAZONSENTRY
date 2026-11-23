@@ -1,8 +1,7 @@
-/* Amazon Sentry: mapa de fogo, desmatamento e garimpo no Brasil, com o Radar IA.
+/* Amazon Sentry: floresta perdida e garimpo novo no Brasil, com o Radar IA.
  * Sem build: MapLibre GL (vendor/) + JSON gerado pelo pipeline em data/.
  *
- * Gramática visual: fogo = ponto (evento); terra que muda = quadrado (área);
- * previsão = contorno vazado. As células são reagregadas conforme o zoom para
+ * Gramática visual: terra que muda = quadrado (área); previsão = contorno vazado. As células são reagregadas conforme o zoom para
  * que nenhum quadrado fique menor que alguns pixels.
  */
 'use strict';
@@ -11,22 +10,23 @@ const DATA = 'data/';
 const DAY_MS = 86400000;
 const NOW_YEAR = new Date().getUTCFullYear();
 const FIRST_YEAR = 1985;
-const LAYERS = ['deforestation', 'mining', 'fires'];   // ordem de desenho
-const COLOR = { fires: '#ff4d1a', deforestation: '#f3c34a', mining: '#1fc8b4', clarao: '#fff3df', negro: '#1b140f' };
-const INK = { fires: '#b8330c', deforestation: '#8a5d00', mining: '#0c6f64' };   // mesmas cores, legíveis no painel
+const LAYERS = ['deforestation', 'mining'];   // ordem de desenho
+const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', clarao: '#fff3df', negro: '#1b140f' };
+const INK = { deforestation: '#8a5d00', mining: '#0c6f64' };   // mesmas cores, legíveis no painel
 const FRONT_COLORS = { 1: '#1fc8b4', 2: '#f3c34a', 3: '#fff3df', 4: '#b39a6b' };
 const EOX_YEARS = { 2016: 's2cloudless_3857', 2018: 's2cloudless-2018_3857', 2019: 's2cloudless-2019_3857',
   2020: 's2cloudless-2020_3857', 2021: 's2cloudless-2021_3857', 2022: 's2cloudless-2022_3857',
   2023: 's2cloudless-2023_3857', 2024: 's2cloudless-2024_3857' };
 const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const MODES = ['live', 'week', 'month', 'year', 'history', 'radar'];
+const MODES = ['week', 'month', 'year', 'history', 'radar'];
+const TL_YEARS = Object.keys(EOX_YEARS).map(Number);
 
 const state = {
-  mode: 'live', year: NOW_YEAR, cumulative: false, base: 'dark',
-  on: { fires: true, deforestation: true, mining: true },
+  mode: 'week', year: NOW_YEAR, cumulative: false, base: 'sat',
+  on: { deforestation: true, mining: true },
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
-  playing: null, renderSeq: 0, pins: [], estados: null,
+  playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -37,7 +37,6 @@ const fmtInt = (v) => nf.format(Math.round(v));
 const dayOf = (y, m = 1, d = 1) => Math.floor(Date.UTC(y, m - 1, d) / DAY_MS);
 const dateOfDay = (n) => new Date(n * DAY_MS);
 const fmtDay = (n) => { const d = dateOfDay(n); return `${d.getUTCDate()} de ${MONTHS[d.getUTCMonth()]}`; };
-const fmtMin = (m) => new Date(m * 60000).toLocaleString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const fmtIso = (s) => new Date(s).toLocaleString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 const haTxt = (v) => (v >= 100 ? `${fmtInt(v)} ha` : `${nf.format(Math.round(v * 10) / 10)} ha`);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -137,8 +136,8 @@ const map = new maplibregl.Map({
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': COLOR.negro } },
-      { id: 'base-dark', type: 'raster', source: 'dark', paint: { 'raster-opacity': 0.72, 'raster-contrast': 0.1 } },
-      { id: 'base-sat', type: 'raster', source: 'sat', layout: { visibility: 'none' } },
+      { id: 'base-dark', type: 'raster', source: 'dark', layout: { visibility: 'none' }, paint: { 'raster-opacity': 0.72, 'raster-contrast': 0.1 } },
+      { id: 'base-sat', type: 'raster', source: 'sat' },
       { id: 'base-s2', type: 'raster', source: 's2', layout: { visibility: 'none' } },
       { id: 'fora-fill', type: 'fill', source: 'fora', paint: { 'fill-color': COLOR.negro, 'fill-opacity': 0.55 } },
       { id: 'estados-line', type: 'line', source: 'estados', paint: { 'line-color': '#d6be93', 'line-width': 0.6, 'line-opacity': 0.35 } },
@@ -165,27 +164,12 @@ function outlineOpacity() {
   return ['interpolate', ['linear'], ['zoom'], 7, 0, 10, 0.75, 13, 0.95];
 }
 
-function fireRadius() {
-  const stops = [];
-  for (const z of [2, 4, 6, 8, 10, 12, 14]) {
-    const px = pxPerDeg(z);
-    stops.push(z, ['case', ['==', ['get', 'cs'], 0],
-      z < 6 ? 1.8 : z < 9 ? 2.8 : 4.5,
-      ['max', 1.6, ['*', ['get', 'cs'], px * 0.6, ['+', 0.3, ['*', 0.7, ['sqrt', ['get', 'w']]]]]]]);
-  }
-  return ['interpolate', ['exponential', 2], ['zoom'], ...stops];
-}
-
 function applyPaint() {
   const squareFill = ['+', 0.1, ['*', 0.85, ['get', 'w']]];
   for (const l of ['deforestation', 'mining']) {
     map.setPaintProperty(`lyr-${l}`, 'fill-opacity', fade(squareFill));
     map.setPaintProperty(`lyr-${l}-edge`, 'line-opacity', outlineOpacity());
   }
-  map.setPaintProperty('lyr-fires', 'circle-opacity',
-    fade(['case', ['==', ['get', 'cs'], 0], 0.92, ['+', 0.25, ['*', 0.7, ['get', 'w']]]]));
-  map.setPaintProperty('lyr-fires', 'circle-stroke-opacity', state.base === 'dark' ? 0.5
-    : ['interpolate', ['linear'], ['zoom'], 6, 0.4, 11, 0.9]);
   map.setPaintProperty('radar-def-fill', 'fill-opacity', fade(['interpolate', ['linear'], ['get', 'score'], 40, 0, 100, 0.22]));
   map.setPaintProperty('radar-min-fill', 'fill-opacity', fade(['interpolate', ['linear'], ['get', 'score'], 15, 0.04, 80, 0.3]));
   map.setPaintProperty('radar-fronts', 'circle-opacity', fade(0.95));
@@ -200,17 +184,6 @@ function addDataLayers() {
     map.addLayer({ id: `lyr-${l}-edge`, type: 'line', source: `src-${l}`,
       paint: { 'line-color': COLOR[l], 'line-width': 1 } });
   }
-  map.addSource('src-fires', { type: 'geojson', data: EMPTY });
-  map.addLayer({ id: 'lyr-fires', type: 'circle', source: 'src-fires', paint: {
-    'circle-color': ['case', ['has', 'age'],
-      ['interpolate', ['linear'], ['get', 'age'], 0, COLOR.clarao, 0.15, '#ffb347', 0.45, COLOR.fires, 1, '#8f1d06'],
-      COLOR.fires],
-    'circle-radius': fireRadius(),
-    'circle-blur': ['case', ['==', ['get', 'cs'], 0], 0, 0.25],
-    'circle-stroke-width': ['case', ['==', ['get', 'cs'], 0], 0.6, 0],
-    'circle-stroke-color': COLOR.negro,
-  } });
-
   // radar
   map.addSource('src-radar-def', { type: 'geojson', data: EMPTY });
   map.addSource('src-radar-min', { type: 'geojson', data: EMPTY });
@@ -231,7 +204,7 @@ function addDataLayers() {
     'circle-stroke-color': COLOR.negro, 'circle-stroke-width': 0.8,
   } });
 
-  for (const id of ['lyr-deforestation', 'lyr-mining', 'lyr-fires', 'radar-def-fill', 'radar-min-fill', 'radar-fronts']) {
+  for (const id of ['lyr-deforestation', 'lyr-mining', 'radar-def-fill', 'radar-min-fill', 'radar-fronts']) {
     map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
   }
@@ -242,7 +215,7 @@ function addDataLayers() {
 function onMapClick(e) {
   const ids = state.mode === 'radar'
     ? ['radar-fronts', 'radar-min-fill', 'radar-def-fill']
-    : ['lyr-fires', 'lyr-mining', 'lyr-deforestation'];
+    : ['lyr-mining', 'lyr-deforestation'];
   const feats = map.queryRenderedFeatures(e.point, { layers: ids.filter((i) => map.getLayer(i)) });
   if (!feats.length) return;
   const f = feats[0], p = f.properties;
@@ -257,57 +230,27 @@ function onMapClick(e) {
     html = `<h3>Previsão para ${state.radar.previsao_ano}</h3>
       <p>Chance de perder 50 ha ou mais de floresta: <b>${c ? c.rd : 0}%</b><br>Chance de surgir garimpo novo: <b>${c ? c.rm : 0}%</b></p>
       <p class="fine">Quadro de ~11 km.</p>`;
-  } else if (p.layer === 'fires') {
-    html = p.when
-      ? `<h3>Foco de fogo</h3>${esc(p.when)}<br>${esc(p.sensor || '')}${p.frp ? `, ${nf.format(p.frp)} MW de potência` : ''}`
-      : `<h3>Focos de fogo</h3><div class="big">${fmtInt(p.v)}</div>focos nesta área`;
   } else if (p.layer === 'mining') {
-    html = `<h3>Garimpo</h3><div class="big">${haTxt(p.v)}</div>de área de garimpo detectada`;
+    html = `<h3>Garimpo novo</h3><div class="big">${haTxt(p.v)}</div>de área de garimpo detectada`;
   } else {
-    html = `<h3>Desmatamento</h3><div class="big">${haTxt(p.v)}</div>de floresta derrubada nesta área`;
+    html = `<h3>Floresta perdida</h3><div class="big">${haTxt(p.v)}</div>de floresta derrubada nesta área`;
   }
   if (!f.layer.id.startsWith('radar-')) {
     const side = Math.round(p.cs * 111);
     html += `<p class="fine">${esc(state.results[p.layer]?.note || '')}${p.cs ? `. Quadro de ~${side} km.` : ''}</p>`;
+  }
+  if (p.layer === 'mining' || f.layer.id === 'radar-fronts' || f.layer.id.startsWith('radar-min')) {
+    html += `<button class="tl-open" data-lng="${e.lngLat.lng}" data-lat="${e.lngLat.lat}">Ver a evolução por satélite</button>`;
   }
   new maplibregl.Popup({ maxWidth: '260px' }).setLngLat(e.lngLat).setHTML(html).addTo(map);
 }
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 // ------------------------------------------------------------------ dados por camada e modo
-async function firesData() {
-  const m = state.mode;
-  if (m === 'live' || m === 'week') {
-    const doc = await getJSON('fires/live.json');
-    if (!doc || !doc.data?.length) return { points: [], total: 0, note: 'sem dados' };
-    const span = m === 'live' ? 24 * 60 : 7 * 24 * 60;
-    const last = doc.last_minutes, from = last - span, d = doc.data;
-    const pts = [];
-    const sensors = ['VIIRS NOAA-20', 'VIIRS NOAA-21', 'VIIRS S-NPP', 'MODIS'];
-    for (let i = 0; i < d.length; i += 6) {
-      const t = doc.t0_minutes + d[i + 2];
-      if (t < from) continue;
-      pts.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [d[i] / 1000, d[i + 1] / 1000] },
-        properties: { layer: 'fires', v: 1, w: 1, cs: 0, age: (last - t) / span, frp: d[i + 3], sensor: sensors[d[i + 4]], when: fmtMin(t) } });
-    }
-    return { points: pts, total: pts.length, note: `todos os satélites, até ${fmtMin(last)}` };
-  }
-  if (m === 'month') {
-    const doc = await getJSON('fires/recent.json');
-    if (!doc || doc.last_day == null) return { total: 0, note: 'sem dados' };
-    return { cells: cellsInWindow(doc, doc.last_day - 29, doc.last_day + 1), note: `VIIRS NOAA-20, até ${fmtDay(doc.last_day)}` };
-  }
-  const y = state.year;
-  if (!(state.manifest.layers?.fires?.years || []).includes(y)) return { total: 0, note: `sem dados de ${y}; a série começa em 2000` };
-  const doc = await getJSON(`fires/${y}.json`);
-  return { cells: cellsInWindow(doc, dayOf(y), dayOf(y + 1)),
-    note: `${doc?.source?.replace('NASA FIRMS ', '') || ''}${doc?.partial ? ', ano em curso' : ''}` };
-}
-
 async function deforestationData() {
   const m = state.mode;
   const man = state.manifest.layers?.deforestation || {};
-  if (m === 'live' || m === 'week' || m === 'month') {
+  if (m === 'week' || m === 'month') {
     const doc = await getJSON('deforestation/alerts/recent.json');
     if (!doc || doc.last_day == null) return { total: 0, note: 'sem dados' };
     const days = m === 'month' ? 30 : 7;
@@ -339,7 +282,7 @@ async function miningData() {
   const lastP = Math.max(...(doc.periods || [0]));
   let keep, note;
   const m = state.mode;
-  if (m === 'live' || m === 'week' || m === 'month') {
+  if (m === 'week' || m === 'month') {
     keep = (p) => p === lastP;
     note = `detecções mais recentes, ${periodLabel(lastP)}`;
   } else {
@@ -368,9 +311,9 @@ function periodLabel(p) {
   return q ? `${q}º trimestre de ${y}` : `${y}`;
 }
 
-const LOADERS = { fires: firesData, deforestation: deforestationData, mining: miningData };
-const SHAPE = { fires: 'circle', deforestation: 'square', mining: 'square' };
-const MIN_PX = { fires: 5, deforestation: 4, mining: 4 };
+const LOADERS = { deforestation: deforestationData, mining: miningData };
+const SHAPE = { deforestation: 'square', mining: 'square' };
+const MIN_PX = { deforestation: 4, mining: 4 };
 
 // ------------------------------------------------------------------ desenho
 function drawLayer(l) {
@@ -407,8 +350,7 @@ async function render() {
     drawLayer(l);
     const btn = $(`.layer[data-layer="${l}"]`);
     let num;
-    if (l === 'fires') num = `${fmtInt(r.total || 0)}<small>focos</small>`;
-    else if (l === 'mining') num = `${haTxt(r.total || 0).replace(' ha', '')}<small>ha</small>`;
+    if (l === 'mining') num = `${haTxt(r.total || 0).replace(' ha', '')}<small>ha</small>`;
     else num = `${haTxt(r.total || 0).replace(' ha', '')}<small>ha</small>`;
     $('[data-total]', btn).innerHTML = num;
     $('[data-note]', btn).textContent = r.note || '';
@@ -421,22 +363,19 @@ async function render() {
 // a frase que abre o painel resume o período em palavras
 function writeLede() {
   const r = state.results, m = state.mode;
-  const fires = `<b>${fmtInt(r.fires?.total || 0)} focos de fogo</b>`;
   const defo = `<b>${haTxt(r.deforestation?.total || 0)}</b> de floresta derrubada`;
-  const mine = r.mining?.total ? `<b>${haTxt(r.mining.total)}</b> de garimpo` : null;
+  const mine = `<b>${haTxt(r.mining?.total || 0)}</b> de garimpo novo`;
   let s;
-  if (m === 'live') {
-    s = `Nas últimas 24 horas, os satélites registraram ${fires}. Na última semana de alertas, ${defo}.`;
-  } else if (m === 'week' || m === 'month') {
+  if (m === 'week' || m === 'month') {
     const n = m === 'week' ? 7 : 30;
-    s = `Nos últimos ${n} dias: ${fires} e ${defo}.`;
+    s = `Nos últimos ${n} dias de alertas, ${defo}. No trimestre mais recente, ${mine}.`;
   } else if (m === 'year') {
-    s = `Em ${NOW_YEAR}, até agora: ${fires}, ${defo}${mine ? ` e ${mine} novo` : ''}.`;
+    s = `Em ${NOW_YEAR}, até agora: ${defo} e ${mine}.`;
   } else {
     const y = state.year;
     s = state.cumulative
-      ? `De 2001 a ${y}, ${defo}${mine ? `; desde 2018, ${mine}` : ''}.`
-      : `Em ${y}: ${fires}, ${defo}${mine ? ` e ${mine} novo` : ''}.`;
+      ? `De 2001 a ${y}, ${defo}${r.mining?.total ? `; desde 2018, <b>${haTxt(r.mining.total)}</b> de garimpo` : ''}.`
+      : `Em ${y}: ${defo}${r.mining?.total ? ` e ${mine}` : ''}.`;
   }
   $('#lede').innerHTML = s;
 }
@@ -474,7 +413,7 @@ async function renderRadar() {
   const md = R.model?.desmatamento || {}, mm = R.model?.garimpo || {};
   const anos = md.anos_treino || [];
   $('#lede').innerHTML = `Onde a floresta deve cair em <b>${R.previsao_ano}</b>, segundo um modelo que aprendeu com
-    ${anos.length ? `${anos[0]} a ${anos[anos.length - 1]}` : 'os anos anteriores'} de desmatamento, fogo e garimpo.`;
+    ${anos.length ? `${anos[0]} a ${anos[anos.length - 1]}` : 'os anos anteriores'} de desmatamento e garimpo.`;
   const v = md.validacao || {};
   $('#radar-intro').innerHTML = v.area_top10 != null
     ? `Testado em ${v.ano} sem ver ${v.ano}: os 10% de áreas que ele marcou como mais arriscadas concentraram
@@ -565,7 +504,8 @@ function focusPoint(p, pin) {
     <ul>${(p.motivos || []).map((m) => `<li>${esc(m)}</li>`).join('')}</ul>
     <p class="fine">${p.tema === 'garimpo' ? 'Chance de garimpo novo' : 'Chance de perder 50 ha ou mais de floresta'} em ${state.radar.previsao_ano}.
     Desmatamento ${p.risco_desmatamento}%, garimpo ${p.risco_garimpo}%.
-    Alertas neste ano: ${haTxt(p.alertas_ano_ha || 0)}. Área de ~11 km.</p>`;
+    Alertas neste ano: ${haTxt(p.alertas_ano_ha || 0)}. Área de ~11 km.</p>
+    <button class="tl-open" data-lng="${p.lon}" data-lat="${p.lat}">Ver a evolução por satélite</button>`;
   new maplibregl.Popup({ maxWidth: '280px', offset: 20 }).setLngLat([p.lon, p.lat]).setHTML(html).addTo(map);
 }
 
@@ -575,7 +515,7 @@ function drawMethod(R, md, mm) {
   const vd = md.validacao || {}, vm = mm.validacao || {};
   $('#method-body').innerHTML = `
     <p>A cada atualização, um modelo de gradient boosting olha o Brasil em quadros de ~11 km. Para cada ano do passado, ele vê só o que se sabia
-    até o ano anterior (perda de floresta em volta, aceleração, distância da frente, fogo, garimpo próximo, floresta que ainda resta)
+    até o ano anterior (perda de floresta em volta, aceleração, distância da frente, garimpo próximo, floresta que ainda resta)
     e aprende o que veio depois. Um modelo para desmatamento, outro para garimpo novo.</p>
     <table>
       ${vd.auc != null ? `<tr><td>Acerto no desmatamento de ${vd.ano} (AUC)</td><td>${nf.format(vd.auc)}</td></tr>` : ''}
@@ -616,12 +556,124 @@ function inRing(x, y, ring) {
   return ins;
 }
 
+// ------------------------------------------------------------------ evolução por satélite
+// Roda os mosaicos anuais Sentinel-2 (EOX) e por fim a imagem atual (Esri) em volta
+// de um ponto, com o garimpo mapeado até cada ano desenhado por cima.
+const TL_FRAMES = [...TL_YEARS.map((y) => ({ y, id: `tl-${y}`, url: eoxUrl(y), label: String(y) })),
+  { y: NOW_YEAR, id: 'tl-hoje', url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', label: 'Hoje' }];
+const RADAR_IDS = ['radar-def-fill', 'radar-def', 'radar-min-fill', 'radar-min', 'radar-fronts'];
+
+function detSquare(n, novo) {
+  const side = Math.sqrt(Math.max(n.ha, 0.5) * 1e4);
+  const dy = side / 111320 / 2, dx = side / (111320 * Math.cos((n.y * Math.PI) / 180)) / 2;
+  return { type: 'Feature', properties: { novo },
+    geometry: { type: 'Polygon', coordinates: [[[n.x - dx, n.y - dy], [n.x + dx, n.y - dy], [n.x + dx, n.y + dy], [n.x - dx, n.y + dy], [n.x - dx, n.y - dy]]] } };
+}
+
+async function openTimelapse(lng, lat) {
+  if (state.tl) closeTimelapse();
+  stopPlay();
+  const doc = await getJSON('mining/detections.json');
+  const d = doc?.data || [];
+  const near = [];
+  for (let i = 0; i < d.length; i += 5) {
+    const x = d[i] / 1000, y = d[i + 1] / 1000;
+    if (Math.abs(x - lng) < 0.08 && Math.abs(y - lat) < 0.08) near.push({ x, y, yr: Math.floor(d[i + 2] / 10), ha: d[i + 4] });
+  }
+  state.tl = { lng, lat, near, i: 0, timer: null };
+  for (const f of TL_FRAMES) {
+    const esri = f.id === 'tl-hoje';
+    map.addSource(f.id, RASTER([f.url], esri ? 'Imagens © Esri, Maxar' : 'Sentinel-2 cloudless © EOX (dados Copernicus)', esri ? 19 : 15));
+    map.addLayer({ id: f.id, type: 'raster', source: f.id,
+      paint: { 'raster-opacity': 0, 'raster-opacity-transition': { duration: 450 }, 'raster-fade-duration': 0 } }, 'fora-fill');
+  }
+  map.addSource('src-tl', { type: 'geojson', data: EMPTY });
+  map.addLayer({ id: 'tl-mine', type: 'line', source: 'src-tl', paint: {
+    'line-color': ['case', ['get', 'novo'], COLOR.clarao, COLOR.mining],
+    'line-width': ['case', ['get', 'novo'], 2.4, 1.4], 'line-opacity': 0.9 } });
+  for (const l of LAYERS) for (const id of [`lyr-${l}`, `lyr-${l}-edge`]) map.setLayoutProperty(id, 'visibility', 'none');
+  for (const id of RADAR_IDS) map.setLayoutProperty(id, 'visibility', 'none');
+  for (const m of state.pins) m.getElement().style.display = 'none';
+  $$('.maplibregl-popup').forEach((el) => el.remove());
+  map.flyTo({ center: [lng, lat], zoom: 13, speed: 1.6 });
+  const ticks = $('#tl-ticks');
+  ticks.innerHTML = '';
+  TL_FRAMES.forEach((f, i) => {
+    const b = document.createElement('button');
+    b.textContent = f.label;
+    b.addEventListener('click', () => { tlPause(); tlShow(i); });
+    ticks.appendChild(b);
+  });
+  $('#tl').hidden = false;
+  document.body.classList.add('tl-on');
+  tlShow(0);
+  tlPlay();
+  syncURL();
+}
+
+function tlShow(i) {
+  const T = state.tl;
+  if (!T) return;
+  T.i = i;
+  const f = TL_FRAMES[i];
+  TL_FRAMES.forEach((g, k) => map.setPaintProperty(g.id, 'raster-opacity', k === i ? 1 : 0));
+  const isLast = i === TL_FRAMES.length - 1;
+  const prevY = i > 0 ? TL_FRAMES[i - 1].y : 0;
+  const isNew = (n) => n.yr > prevY && n.yr >= 2019;   // 2018 é a linha de base do mapeamento
+  const upto = T.near.filter((n) => n.yr <= f.y);
+  map.getSource('src-tl').setData({ type: 'FeatureCollection', features: upto.map((n) => detSquare(n, isNew(n))) });
+  $('#tl-year').textContent = f.label;
+  const total = upto.reduce((a, n) => a + n.ha, 0);
+  const nov = upto.filter(isNew).reduce((a, n) => a + n.ha, 0);
+  const when = isLast ? `depois de ${prevY}` : prevY + 1 === f.y ? `em ${f.y}` : `entre ${prevY + 1} e ${f.y}`;
+  let note;
+  if (f.y < 2018) note = 'O mapeamento de garimpo começa em 2018; aqui é como a área estava antes.';
+  else if (!upto.length) note = `Nenhum garimpo mapeado aqui até ${f.y}.`;
+  else note = `${haTxt(total)} de garimpo mapeado em volta${nov ? `; ${haTxt(nov)} surgiram ${when}, em branco` : ''}.`;
+  $('#tl-note').textContent = `${note} ${isLast ? 'Imagem mais recente disponível (Esri).' : 'Mosaico Sentinel-2 do ano (EOX).'}`;
+  $$('#tl-ticks button').forEach((b, k) => b.setAttribute('aria-pressed', String(k === i)));
+}
+
+function tlPlay() {
+  const T = state.tl;
+  if (!T) return;
+  clearInterval(T.timer);
+  T.timer = setInterval(() => tlShow((T.i + 1) % TL_FRAMES.length), 1700);
+  $('#tl-play span').textContent = '❚❚';
+  $('#tl-play').setAttribute('aria-label', 'Pausar');
+}
+
+function tlPause() {
+  const T = state.tl;
+  if (!T) return;
+  clearInterval(T.timer);
+  T.timer = null;
+  $('#tl-play span').textContent = '▶';
+  $('#tl-play').setAttribute('aria-label', 'Reproduzir');
+}
+
+function closeTimelapse() {
+  const T = state.tl;
+  if (!T) return;
+  clearInterval(T.timer);
+  for (const f of TL_FRAMES) {
+    map.removeLayer(f.id);
+    map.removeSource(f.id);
+  }
+  map.removeLayer('tl-mine');
+  map.removeSource('src-tl');
+  for (const l of LAYERS) for (const id of [`lyr-${l}`, `lyr-${l}-edge`]) map.setLayoutProperty(id, 'visibility', 'visible');
+  for (const id of RADAR_IDS) map.setLayoutProperty(id, 'visibility', 'visible');
+  for (const m of state.pins) m.getElement().style.display = '';
+  state.tl = null;
+  $('#tl').hidden = true;
+  document.body.classList.remove('tl-on');
+  syncURL();
+}
+
 // ------------------------------------------------------------------ séries anuais
 function chartSeries() {
   const s = state.stats || {};
-  const fires = {};
-  for (const [y, v] of Object.entries(s.fires?.focos_modis || {})) fires[y] = { v };
-  for (const [y, v] of Object.entries(s.fires?.focos_viirs || {})) if (+y >= 2012) fires[y] = { v };
   const defo = {};
   for (const [y, v] of Object.entries(s.deforestation?.alertas_glad_ha || {})) defo[y] = { v, alt: true };
   for (const [y, v] of Object.entries(s.deforestation?.perda_hansen_ha || {})) defo[y] = { v };
@@ -629,7 +681,6 @@ function chartSeries() {
   for (const [y, v] of Object.entries(s.mining?.area_nova_ha || {})) if (+y > 2018) mine[y] = { v };
   return [
     ['deforestation', defo, 'Floresta perdida', (v) => haTxt(v), 'claro: alertas GLAD do ano ainda sem o número anual'],
-    ['fires', fires, 'Focos de fogo', (v) => fmtInt(v), 'MODIS até 2011, VIIRS depois'],
     ['mining', mine, 'Garimpo novo', (v) => haTxt(v), ''],
   ];
 }
@@ -715,9 +766,10 @@ function syncYearUI() {
 
 function syncURL() {
   const q = new URLSearchParams();
-  if (state.mode !== 'live') q.set('modo', state.mode);
+  if (state.mode !== 'week') q.set('modo', state.mode);
+  if (state.tl) q.set('evolucao', `${state.tl.lng.toFixed(4)},${state.tl.lat.toFixed(4)}`);
   if (state.mode === 'history') q.set('ano', state.year);
-  if (state.base !== 'dark') q.set('fundo', state.base);
+  if (state.base !== 'sat') q.set('fundo', state.base);
   const s = q.toString();
   history.replaceState(null, '', s ? `?${s}` : location.pathname);
 }
@@ -756,7 +808,7 @@ function updateBase() {
 
 function firstDataYear() {
   const L = state.manifest.layers || {};
-  const ys = [...(L.fires?.years || []), ...(L.deforestation?.loss_years || []), ...(L.mining?.years || [])];
+  const ys = [...(L.deforestation?.loss_years || []), ...(L.mining?.years || [])];
   return ys.length ? Math.min(...ys) : 2001;
 }
 
@@ -811,6 +863,13 @@ function bind() {
   yr.addEventListener('input', () => { $('#year-label').textContent = yr.value; });
   yr.addEventListener('change', () => setYear(+yr.value));
   $('#play').addEventListener('click', play);
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest('.tl-open');
+    if (b) openTimelapse(+b.dataset.lng, +b.dataset.lat);
+  });
+  $('#tl-play').addEventListener('click', () => (state.tl?.timer ? tlPause() : tlPlay()));
+  $('#tl-close').addEventListener('click', closeTimelapse);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.tl) closeTimelapse(); });
   $('#sheet-handle').addEventListener('click', () => {
     const closed = $('#rail').classList.toggle('closed');
     $('#sheet-handle').setAttribute('aria-expanded', String(!closed));
@@ -825,10 +884,12 @@ function bind() {
   // parâmetros na URL: ?modo=history&ano=2019&fundo=sat
   const q = new URLSearchParams(location.search);
   if (q.get('ano')) state.year = Math.min(NOW_YEAR, Math.max(FIRST_YEAR, +q.get('ano')));
+  const evo = (q.get('evolucao') || '').split(',').map(Number);
+  if (evo.length === 2 && evo.every(Number.isFinite)) setTimeout(() => openTimelapse(evo[0], evo[1]), 300);
   const fundo = q.get('fundo');
   if (fundo && ['dark', 'sat', 's2'].includes(fundo)) setBase(fundo);
   const modo = q.get('modo');
-  if (modo && MODES.includes(modo) && modo !== 'live') {
+  if (modo && MODES.includes(modo) && modo !== 'week') {
     state.mode = '';
     setMode(modo);
     return true;
@@ -843,10 +904,11 @@ async function init() {
   state.stats = stats || {};
   state.estados = estados;
   const L = state.manifest.layers || {};
-  $('#updated').textContent = L.fires?.live_updated
-    ? `Fogo atualizado em ${fmtIso(L.fires.live_updated)}; desmatamento em ${L.deforestation?.alerts_updated ? fmtIso(L.deforestation.alerts_updated) : '–'}.`
+  $('#updated').textContent = L.deforestation?.alerts_updated
+    ? `Alertas de desmatamento atualizados em ${fmtIso(L.deforestation.alerts_updated)}; garimpo em ${L.mining?.updated ? fmtIso(L.mining.updated) : '–'}.`
     : 'Ainda sem dados publicados.';
   addDataLayers();
+  updateBase();
   buildOutside();
   if (!bind()) render();
   if (window.innerWidth < 760) {

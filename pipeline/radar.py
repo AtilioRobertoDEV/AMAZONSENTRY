@@ -1,7 +1,7 @@
 """Radar IA: onde o próximo desmatamento e o próximo garimpo devem aparecer.
 
 Aprende com o próprio histórico do site, célula a célula (0,1 grau, ~11 km):
-perda de floresta anual (Hansen), alertas GLAD, focos de fogo (FIRMS) e garimpo
+perda de floresta anual (Hansen), alertas GLAD e garimpo
 (Amazon Mining Watch). Para cada ano T, as variáveis usam só o que se sabia até
 T-1, e o alvo é o que aconteceu em T. Um gradient boosting por tema
 (desmatamento e garimpo) é treinado nos anos passados, validado no último ano
@@ -131,14 +131,6 @@ class Data:
                 self.alerts[y] = to_grid(r, d["cell"], sh)
                 self.alert_last_month[y] = int(r[:, 2].max()) if r.size else 0
 
-        self.fires = {}
-        fm = man.get("layers", {}).get("fires", {})
-        self.fire_partial = set(fm.get("partial_years", []))
-        for y in fm.get("years", []):
-            d, r = read_cells(C.DATA_DIR / "fires" / f"{y}.json")
-            if d:
-                self.fires[y] = to_grid(r, d["cell"], sh)
-
         md = C.read_json(C.DATA_DIR / "mining" / "detections.json", {}) or {}
         pts = np.asarray(md.get("data", []), dtype=float).reshape(-1, 5)
         self.mine_pts = pts
@@ -187,9 +179,6 @@ class Data:
             f = np.maximum(f - self.loss_of(k), 0)
         return f
 
-    def fire_of(self, y):
-        return self.fires.get(y, np.zeros(self.shape))
-
     def mine_cum(self, y):
         g = np.zeros(self.shape)
         for k in self.mine_years:
@@ -216,8 +205,6 @@ FEATURES = [
     ("perda_23_viz30", "perda 2-3 anos atrás a ~30 km"),
     ("aceleracao", "aceleração da perda em volta"),
     ("dist_frente", "distância da frente ativa"),
-    ("fogo_2", "focos de fogo"),
-    ("fogo_viz30", "focos de fogo a ~30 km"),
     ("garimpo_cel", "garimpo na célula"),
     ("garimpo_viz30", "garimpo a ~30 km"),
     ("garimpo_novo_viz30", "garimpo novo a ~30 km"),
@@ -228,7 +215,7 @@ FEATURES = [
 
 
 def features(D: Data, T: int):
-    """Variáveis para prever o ano T usando só informação até T-1 (fogo até T-2)."""
+    """Variáveis para prever o ano T usando só informação até T-1."""
     l1 = D.loss_of(T - 1)
     l23 = D.loss_of(T - 2) + D.loss_of(T - 3)
     l410 = sum(D.loss_of(k) for k in range(T - 10, T - 3))
@@ -237,7 +224,6 @@ def features(D: Data, T: int):
     v23_30 = box(l23, 3)
     acc = np.log1p(v1_30) - np.log1p(v23_30 / 2)
     front = dist_cells(l1 >= 10)
-    f2 = D.fire_of(T - 2)
     mc = D.mine_cum(T - 1)
     mn = D.mine_new(T - 1)
     dm = dist_cells(mc > 0)
@@ -247,14 +233,13 @@ def features(D: Data, T: int):
         np.log1p(fr), fr / D.cell_ha,
         np.log1p(l1), np.log1p(l23), np.log1p(l410),
         np.log1p(v1_10), np.log1p(v1_30), np.log1p(v23_30), acc, front,
-        np.log1p(f2), np.log1p(box(f2, 3)),
         np.log1p(mc), np.log1p(box(mc, 3)), np.log1p(box(mn, 3)), dm,
         lon, lat,
     ]
     X = np.stack([c[D.mask] for c in cols], axis=1).astype(np.float32)
     raw = {
         "forest": fr[D.mask], "l1": l1[D.mask], "v1_30": v1_30[D.mask], "v23_30": v23_30[D.mask],
-        "front": front[D.mask], "f2": f2[D.mask], "fire30": box(f2, 3)[D.mask],
+        "front": front[D.mask], 
         "mc30": box(mc, 3)[D.mask], "mn30": box(mn, 3)[D.mask], "dm": dm[D.mask],
     }
     return X, raw
@@ -329,8 +314,6 @@ def reasons(kind, raw, i, score_def, score_min):
         r.append(f"frente de desmatamento a ~{max(km(raw['front'][i]), 1)} km")
     if raw["v23_30"][i] > 0 and raw["v1_30"][i] > 1.5 * raw["v23_30"][i] / 2 and raw["v1_30"][i] > 100:
         r.append("desmatamento em volta acelerando")
-    if raw["fire30"][i] >= 30:
-        r.append(f"{n_br(raw['fire30'][i])} focos de fogo a até ~30 km")
     if raw["forest"][i] > 0:
         r.append(f"{n_br(raw['forest'][i])} ha de floresta ainda de pé")
     return r[:4]
