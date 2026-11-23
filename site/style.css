@@ -297,6 +297,20 @@ footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--regua)
   padding: 8px 10px; font-size: 13px; font-weight: 650; font-stretch: 92%; text-align: left;
 }
 .tl-open:hover { background: #000; }
+/* coordenadas do ponto no popup */
+.geo {
+  display: grid; grid-template-columns: 1fr auto; gap: 6px 8px; align-items: center;
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(42, 30, 18, .2); font-size: 12px;
+}
+.geo-ll { font-variant-numeric: tabular-nums; color: var(--tinta); font-weight: 600; user-select: all; }
+.geo-copy {
+  appearance: none; cursor: pointer; font: inherit; font-weight: 650; padding: 3px 8px; border-radius: 2px;
+  background: none; color: var(--tinta); border: 1px solid var(--tinta);
+}
+.geo-copy:hover { background: rgba(42, 30, 18, .1); }
+.geo-maps { grid-column: 1 / -1; color: var(--tinta); font-weight: 650; }
+.geo-copy:focus-visible, .geo-maps:focus-visible { outline: 2px solid var(--tinta); outline-offset: 2px; }
+.geo-pop h3 + .geo { margin-top: 2px; border-top: 0; padding-top: 0; }
 #tl {
   position: absolute; left: var(--rail); right: 0; bottom: 0; z-index: 4;
   display: grid; grid-template-columns: 44px 1fr auto; gap: 16px; align-items: end;

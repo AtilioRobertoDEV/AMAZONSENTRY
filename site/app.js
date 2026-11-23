@@ -257,7 +257,15 @@ function onMapClick(e) {
     ? ['radar-fronts', 'radar-min-fill', 'radar-def-fill']
     : ['air-hit', 'air-reg-hit', 'air-reg-hitdot', 'lyr-mining', 'lyr-deforestation'];
   const feats = map.queryRenderedFeatures(e.point, { layers: ids.filter((i) => map.getLayer(i)) });
-  if (!feats.length) return;
+  if (!feats.length) {
+    // clique num ponto vazio (de perto): coordenadas para copiar ou abrir no Google Maps,
+    // por exemplo para apontar uma pista que o mapa ainda não marcou
+    if (map.getZoom() >= 10) {
+      new maplibregl.Popup({ maxWidth: '260px', className: 'geo-pop' }).setLngLat(e.lngLat)
+        .setHTML(`<h3>Ponto no mapa</h3>${geoRow(e.lngLat.lng, e.lngLat.lat)}`).addTo(map);
+    }
+    return;
+  }
   const f = feats[0], p = f.properties;
   if (f.layer.id === 'air-hit') return airPopup(p.i, e.lngLat);
   if (f.layer.id.startsWith('air-reg')) return airRegPopup(p.i, e.lngLat);
@@ -283,9 +291,31 @@ function onMapClick(e) {
   }
   const kind = p.layer === 'mining' || f.layer.id.startsWith('radar-min') || (f.layer.id === 'radar-fronts' && p.tipo === 1) ? 'mining' : 'deforestation';
   html += `<button class="tl-open" data-kind="${kind}" data-lng="${e.lngLat.lng}" data-lat="${e.lngLat.lat}">Ver a evolução por satélite</button>`;
+  html += geoRow(e.lngLat.lng, e.lngLat.lat);
   new maplibregl.Popup({ maxWidth: '260px' }).setLngLat(e.lngLat).setHTML(html).addTo(map);
 }
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// latitude, longitude do ponto: copiar ou abrir no Google Maps (vista de satélite)
+function geoRow(lng, lat) {
+  const ll = `${(+lat).toFixed(5)}, ${(+lng).toFixed(5)}`;
+  const url = `https://www.google.com/maps/@${(+lat).toFixed(6)},${(+lng).toFixed(6)},1500m/data=!3m1!1e3`;
+  return `<div class="geo"><span class="geo-ll">${ll}</span>
+    <button type="button" class="geo-copy" data-ll="${ll}">Copiar</button>
+    <a class="geo-maps" href="${url}" target="_blank" rel="noopener">Abrir no Google Maps</a></div>`;
+}
+
+async function copyLL(b) {
+  const ll = b.dataset.ll;
+  try {
+    await navigator.clipboard.writeText(ll);
+  } catch {
+    const t = document.createElement('textarea');   // http ou navegador sem clipboard API
+    t.value = ll; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove();
+  }
+  b.textContent = 'Copiado';
+  setTimeout(() => { b.textContent = 'Copiar'; }, 1500);
+}
 
 // ------------------------------------------------------------------ dados por camada e modo
 async function deforestationData() {
@@ -526,7 +556,8 @@ function airPopup(i, ll) {
     ${km != null ? `<p>${km < 1 ? 'Colada a um garimpo' : `Garimpo mais perto a ${nf.format(km)} km`}.</p>` : ''}
     ${r[A.PRIO] === 3 ? '<p>Fora da floresta amazônica e longe de garimpo: muitas pistas assim servem a fazendas.</p>' : ''}
     <p class="fine">${kind} Fonte da indicação: ${esc(srcs)}. Medida no Sentinel-2${r[A.P] != null ? `; nosso modelo dá ${Math.round(r[A.P] * 100)}% de chance de ser pista e não estrada ou rio` : ''}.</p>
-    <button class="tl-open" data-kind="airstrip" data-lng="${r[A.LON]}" data-lat="${r[A.LAT]}">Ver a evolução por satélite</button>`;
+    <button class="tl-open" data-kind="airstrip" data-lng="${r[A.LON]}" data-lat="${r[A.LAT]}">Ver a evolução por satélite</button>
+    ${geoRow(r[A.LON], r[A.LAT])}`;
   new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(ll).setHTML(html).addTo(map);
 }
 
@@ -546,7 +577,8 @@ function airRegPopup(i, ll) {
     <div class="big">${esc(r[R.CODE] || '')}</div>${esc(r[R.PLACE] || '')}
     <p class="air-reg">Registrada na ANAC como aeródromo ${r[R.PUB] ? 'público' : 'privado'}.</p>
     <p class="fine">${r[R.X1] != null ? 'Traçado da pista: OpenStreetMap.' : 'Sem traçado da pista: só a posição do cadastro.'} Cadastro de aeródromos da ANAC, guardado no site.</p>
-    <button class="tl-open" data-kind="airstrip" data-lng="${r[R.LON]}" data-lat="${r[R.LAT]}">Ver a evolução por satélite</button>`;
+    <button class="tl-open" data-kind="airstrip" data-lng="${r[R.LON]}" data-lat="${r[R.LAT]}">Ver a evolução por satélite</button>
+    ${geoRow(r[R.LON], r[R.LAT])}`;
   new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(ll).setHTML(html).addTo(map);
 }
 
@@ -761,7 +793,8 @@ function focusPoint(p, pin) {
     <p class="fine">${p.tema === 'garimpo' ? 'Chance de garimpo novo' : 'Chance de perder 50 ha ou mais de floresta'} em ${state.radar.previsao_ano}.
     Desmatamento ${p.risco_desmatamento}%, garimpo ${p.risco_garimpo}%.
     Alertas neste ano: ${haTxt(p.alertas_ano_ha || 0)}. Área de ~11 km.</p>
-    <button class="tl-open" data-kind="${p.tema === 'garimpo' ? 'mining' : 'deforestation'}" data-lng="${p.lon}" data-lat="${p.lat}">Ver a evolução por satélite</button>`;
+    <button class="tl-open" data-kind="${p.tema === 'garimpo' ? 'mining' : 'deforestation'}" data-lng="${p.lon}" data-lat="${p.lat}">Ver a evolução por satélite</button>
+    ${geoRow(p.lon, p.lat)}`;
   new maplibregl.Popup({ maxWidth: '280px', offset: 20 }).setLngLat([p.lon, p.lat]).setHTML(html).addTo(map);
 }
 
@@ -1435,6 +1468,8 @@ function bind() {
   document.addEventListener('click', (e) => {
     const b = e.target.closest('.tl-open');
     if (b) openTimelapse(+b.dataset.lng, +b.dataset.lat, b.dataset.kind);
+    const c = e.target.closest('.geo-copy');
+    if (c) copyLL(c);
   });
   $('#tl-play').addEventListener('click', () => (state.tl?.timer ? tlPause() : tlPlay()));
   $('#tl-close').addEventListener('click', closeTimelapse);

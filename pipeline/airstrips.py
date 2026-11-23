@@ -1024,6 +1024,42 @@ def in_forest(lons, lats):
     return shapely.contains_xy(g, np.asarray(lons), np.asarray(lats))
 
 
+# Sedes de município (código IBGE, nome, lat/lon), CSV público no GitHub (kelvins/municipios-brasileiros, MIT),
+# guardado em cache. Serve para conferir se uma pista "de cidade" tem mesmo cidade perto.
+MUNICIPIOS = "https://raw.githubusercontent.com/kelvins/municipios-brasileiros/main/csv/municipios.csv"
+SEAT_KM = 6          # sede a até 6 km: pista de cidade
+SEAT_NAME_KM = 25    # ou o nome da pista é o da sede mais perto, a até 25 km (aeroporto longe do centro)
+_seats = None
+
+
+def town_seats():
+    global _seats
+    if _seats is None:
+        cache = CACHE / "municipios.csv"
+        try:
+            txt = C.get_text(MUNICIPIOS, timeout=120)
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(txt)
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! municípios: {e}")
+            txt = cache.read_text() if cache.exists() else ""
+        rows = list(csv.DictReader(io.StringIO(txt)))
+        _seats = [(float(r["longitude"]), float(r["latitude"]), _fold(r["nome"])) for r in rows] if rows else []
+    return _seats
+
+
+def real_town(lon, lat, name):
+    """A pista 'de cidade ou vila' tem mesmo uma sede de município perto?"""
+    seats = town_seats()
+    if not seats:
+        return True
+    k = np.cos(np.radians(lat))
+    best = min(seats, key=lambda t: ((t[0] - lon) * k) ** 2 + (t[1] - lat) ** 2)
+    km = np.hypot((best[0] - lon) * k, best[1] - lat) * 111
+    stem = _fold(re.sub(r"(?i)^(aeroporto|aerodromo|aeródromo|pista)( municipal)?( de| do| da)?\s+|\s+(airport|airfield|airstrip)$", "", name or ""))
+    return km <= SEAT_KM or (km <= SEAT_NAME_KM and bool(stem) and (stem == best[2] or best[2].startswith(stem) or stem.startswith(best[2])))
+
+
 def ti_names(lons, lats, lands):
     if not lands:
         return [""] * len(lons)
@@ -1099,6 +1135,10 @@ def write_output(sites, items, this_year):
     for (c, r), x, y, km, ti, fo in zip(rows, lon, lat, dist, tis, forest):
         # 1 perto de garimpo ou em terra indígena, 2 floresta amazônica, 3 Cerrado/Pantanal/transição (fazendas)
         prio = 1 if ti or (km is not None and km <= NEAR_MINING_KM) else 2 if fo else 3
+        cat = CATS[c.get("cat")]
+        # "vila" sem sede de município perto e colada a garimpo é vila garimpeira: conta como sem registro
+        if cat == 2 and km is not None and km <= NEAR_MINING_KM and not real_town(x, y, c["names"][0] if c.get("names") else ""):
+            cat = 0
         ser = r.get("series", {})
         yrs = range(S2.FIRST_YEAR, this_year + 1)
         # 0-9 = fração da pista aberta naquele ano; "-" = imagem ruim, ano ignorado
@@ -1110,7 +1150,7 @@ def write_output(sites, items, this_year):
             round(x, 5), round(y, 5),
             r["ends"][0][0], r["ends"][0][1], r["ends"][1][0], r["ends"][1][1],
             r["length"], born[0], born[1], STATUS[r["status"]], r.get("last"), r.get("closed_since"),
-            km, src, s, (c["names"][0] if c.get("names") else "")[:60], CATS[c.get("cat")], ti, prio, pista_chance(r),
+            km, src, s, (c["names"][0] if c.get("names") else "")[:60], cat, ti, prio, pista_chance(r),
         ])
     by_year = {}
     for row in data:

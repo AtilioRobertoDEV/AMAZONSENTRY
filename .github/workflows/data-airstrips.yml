@@ -5,7 +5,7 @@ on:
     - cron: "15 3 * * *"    # diária: confere um lote de pistas por vez até cobrir todas
   push:
     branches: [main]
-    paths: ["pipeline/airstrips.py", "pipeline/sentinel2.py"]
+    paths: ["pipeline/airstrips.py", "pipeline/sentinel2.py", "pipeline/airstrip_model.py", "pipeline/airstrip_model.json"]
   workflow_dispatch:
     inputs:
       budget:

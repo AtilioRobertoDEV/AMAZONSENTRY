@@ -93,7 +93,9 @@ que a pista surgiu, a situação no último ano (em uso, perdendo uso, abandonad
 o garimpo mais próximo. "Sem registro" quer dizer que não achamos registro, não que a pista seja ilegal.
 
 As pistas de aldeia e de cidade ou vila (pelo nome ou município) ficam em tipos à parte: muitas não estão
-na lista da ANAC, mas são de uso público. Os aeródromos registrados na ANAC também podem ser ligados no mapa,
+na lista da ANAC, mas são de uso público. Uma pista "de vila" a até 20 km de garimpo só fica nesse tipo se houver
+sede de município perto (lista pública de sedes, kelvins/municipios-brasileiros); senão é vila garimpeira e conta
+como sem registro. Os aeródromos registrados na ANAC também podem ser ligados no mapa,
 com o traçado do OSM quando existe. Quando a pista está desenhada no OSM (ou tem cabeceiras no OurAirports),
 o eixo é esse traçado, com um ajuste fino na imagem; água (MNDWI) não conta como pista. O popup diz se a
 pista está dentro de terra indígena (polígonos da FUNAI ou do OpenStreetMap, guardados em cache).
