@@ -878,6 +878,10 @@ def indigenous_lands():
     except Exception as e:  # noqa: BLE001
         print(f"  ! FUNAI terras indígenas: {e}")
     if doc is None:
+        doc = lands_from_osm()
+        if doc:
+            C.write_json(cache, doc)
+    if doc is None:
         doc = C.read_json(cache) if cache.exists() else None
         if doc:
             print("  Terras indígenas: usando o cache")
@@ -885,6 +889,41 @@ def indigenous_lands():
         return None
     print(f"  Terras indígenas: {len(doc['features'])}")
     return [(f["name"], shape(f["geometry"])) for f in doc["features"]]
+
+
+def lands_from_osm():
+    """Terras indígenas mapeadas no OSM (boundary=aboriginal_lands ou área protegida classe 24)."""
+    from shapely.geometry import LineString
+    from shapely.ops import polygonize, unary_union
+    q = f"""[out:json][timeout:900];
+(relation["boundary"="aboriginal_lands"]({BBOX[1]},{BBOX[0]},{BBOX[3]},{BBOX[2]});
+ relation["boundary"="protected_area"]["protect_class"="24"]({BBOX[1]},{BBOX[0]},{BBOX[3]},{BBOX[2]}););
+out geom;"""
+    import requests
+    for url in OVERPASS:
+        try:
+            r = requests.post(url, data={"data": q}, timeout=1200, headers=C.UA)
+            r.raise_for_status()
+            els = r.json().get("elements", [])
+            break
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! Overpass (terras indígenas) {url}: {e}")
+    else:
+        return None
+    feats = []
+    for el in els:
+        lines = [LineString([(p["lon"], p["lat"]) for p in m["geometry"]]) for m in el.get("members", [])
+                 if m.get("type") == "way" and m.get("role") in ("outer", "") and len(m.get("geometry") or []) >= 2]
+        if not lines:
+            continue
+        g = unary_union(list(polygonize(unary_union(lines))))
+        if g.is_empty:
+            continue
+        g = g.simplify(0.002, preserve_topology=True)
+        name = re.sub(r"(?i)^terra ind[ií]gena\s+", "", el.get("tags", {}).get("name", "")).strip()
+        feats.append({"name": name, "geometry": g.__geo_interface__})
+    print(f"  Terras indígenas (OSM): {len(feats)}")
+    return {"checked": dt.date.today().isoformat(), "source": "osm", "features": feats} if feats else None
 
 
 def ti_names(lons, lats, lands):
@@ -898,7 +937,7 @@ def ti_names(lons, lats, lands):
     for lo, la in zip(lons, lats):
         pt = Point(lo, la)
         hit = [i for i in tree.query(pt) if geoms[i].contains(pt)]
-        out.append(lands[hit[0]][0].title()[:50] if hit else "")
+        out.append(re.sub(r"(?i)^terra ind[ií]gena\s+", "", lands[hit[0]][0]).strip().title()[:50] if hit else "")
     return out
 
 
@@ -979,7 +1018,7 @@ def write_output(sites, items, this_year):
         "layer": "airstrips",
         "kind": "pistas de pouso sem registro encontrado (suspeitas), conferidas no Sentinel-2",
         "source": "OpenStreetMap (ODbL), OurAirports (domínio público), MapBiomas; imagens Copernicus Sentinel-2 L2A; "
-                  "perda de floresta Hansen/UMD; garimpo Amazon Mining Watch; cadastro de aeródromos ANAC; terras indígenas FUNAI",
+                  "perda de floresta Hansen/UMD; garimpo Amazon Mining Watch; cadastro de aeródromos ANAC; terras indígenas FUNAI ou OpenStreetMap",
         "first_year": S2.FIRST_YEAR,
         "fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "comprimento_m", "surgiu_depois_de", "surgiu_ate",
                    "situacao(1 ativa,2 perdendo uso,3 abandonada,4 reaberta)", "ultimo_ano_visto", "fechada_desde",
