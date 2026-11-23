@@ -38,4 +38,5 @@ jobs:
         if: contains(inputs.steps, 'features')
         working-directory: pipeline
         run: python -u airstrip_model.py features --workers 24 --budget 120
-      - run: scripts/data-branch.sh publish "treino pistas $(date -u +%FT%TZ)"
+      - if: always()
+        run: scripts/data-branch.sh publish "treino pistas $(date -u +%FT%TZ)"

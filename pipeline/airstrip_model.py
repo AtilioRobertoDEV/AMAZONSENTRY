@@ -144,7 +144,8 @@ def straight_pieces(g, lo=350, hi=1900, tol=12):
             a, b = p[i], p[j]
             d = b - a
             L = np.hypot(*d)
-            dev = np.abs(np.cross(d, p[i:j + 1] - a)) / max(L, 1)
+            q = p[i:j + 1] - a
+            dev = np.abs(d[0] * q[:, 1] - d[1] * q[:, 0]) / max(L, 1)
             if dev.max() > tol:
                 break
             best = j
