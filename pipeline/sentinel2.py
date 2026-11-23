@@ -264,6 +264,29 @@ def unrotate(th, y, x, n=N):
     return c + dx * np.cos(t) - dy * np.sin(t), c + dx * np.sin(t) + dy * np.cos(t)
 
 
+def end_branches(v, th, y, a, b, open_below, r0=8, r1=20):
+    """O que sai de cada ponta da faixa: (fração aberta, nº de setores de 10° abertos).
+
+    Olha um anel de 80-200 m em volta da ponta, fora do cone de volta pela própria
+    faixa. Pista: a ponta acaba no mato (0 setores) ou dá num acesso só. Estrada e
+    rio continuam pelas duas pontas."""
+    fill = np.nanmedian(v)
+    m = _rot(np.where(np.isnan(v), fill, v), th)
+    op = m < open_below
+    yy, xx = np.mgrid[0:m.shape[0], 0:m.shape[1]]
+    out = []
+    for ex, sgn in ((a, -1), (b, 1)):
+        dx, dy = (xx - ex) * sgn, yy - y
+        rr = np.hypot(dx, dy)
+        ang = np.degrees(np.arctan2(dy, dx))
+        ring = (rr >= r0) & (rr <= r1) & (np.abs(ang) < 145)
+        o = op[ring]
+        bins = np.round(ang[ring] / 10).astype(int)
+        sect = sum(1 for k in np.unique(bins) if o[bins == k].mean() > 0.5)
+        out.append((float(o.mean()) if o.size else 0.0, sect))
+    return out
+
+
 def footprint(th, y, a, b, pad=10, n=N):
     """Máscara (na janela original) do eixo da pista com as laterais."""
     m = np.zeros((n, n), bool)

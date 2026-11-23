@@ -40,11 +40,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common as C  # noqa: E402
 import sentinel2 as S2  # noqa: E402
 
-VERSION = "v2"
+VERSION = "v2"          # varredura em volta dos garimpos
+RESULTS_VERSION = "v3"  # checagem ano a ano (v3: estrada/rio no detector)
 OUT = C.DATA_DIR / "airstrips"
 CACHE = C.DATA_DIR / "_cache" / "airstrips"
 LEGAL = {"AC", "AM", "AP", "PA", "RO", "RR", "TO", "MT", "MA"}
 ANAC_CODE = re.compile(r"^S[A-Z][A-Z0-9]{2}$")
+# Pistas de cidade, vila ou aldeia: muitas estão sem registro na ANAC, mas são de uso público
+# e não são o que a camada procura. Entram como referência (tiram as candidatas por perto).
+PRIVATE = re.compile(r"(?i)\b(fazendas?|faz\.?|agro\w*|est[aâ]ncia|s[ií]tio|ch[aá]cara|ltda|s/?a\b|grupo|usina|"
+                     r"minera[cç][aã]o|garimpos?|madeireira|pecu[aá]ria|rancho?|serraria|empresa|haras|agr[ií]cola)")
+PUBLIC = re.compile(r"(?i)^(aeroporto|aer[oó]dromo)\s+(municipal|regional|estadual|internacional|p[uú]blic[oa]|"
+                    r"de|do|da|dos|das)\b|\baldeia\b|\bmiss[aã]o\b|\bterra ind[ií]gena\b")
+
+
+def _fold(s: str) -> str:
+    import unicodedata
+    return "".join(ch for ch in unicodedata.normalize("NFD", s or "").lower() if unicodedata.category(ch) != "Mn")
+
+
+TOWNS: set = set()  # nomes de município (sem acento) vistos no OurAirports
+
+
+def is_public(name: str, town: str = "") -> bool:
+    """Nome de pista municipal/comunitária ('Aeroporto de Pauini', 'Jaru Airport', 'Aldeia ...')."""
+    n = (name or "").strip()
+    if not n or PRIVATE.search(n):
+        return False
+    if PUBLIC.search(n):
+        return True
+    stem = _fold(re.sub(r"(?i)\s+(airport|airfield|airstrip)$", "", n))
+    t = _fold(town)
+    if t and len(t) > 2 and (stem == t or stem.startswith(t + " ") or stem.startswith(t + "/")):
+        return True
+    return stem.split("/")[0].strip() in TOWNS
 
 OURAIRPORTS = "https://raw.githubusercontent.com/davidmegginson/ourairports-data/main/"
 OVERPASS = ["https://overpass-api.de/api/interpreter",
@@ -117,18 +146,21 @@ def from_ourairports():
     except Exception as e:  # noqa: BLE001
         print("  ! runways.csv:", e)
     cands, reg = [], []
-    for r in csv.DictReader(io.StringIO(txt)):
-        if r["iso_country"] != "BR":
-            continue
+    rows = [r for r in csv.DictReader(io.StringIO(txt)) if r["iso_country"] == "BR"]
+    TOWNS.update(t for t in (_fold(r.get("municipality", "")) for r in rows) if len(t) > 2)
+    for r in rows:
         lon, lat = float(r["longitude_deg"]), float(r["latitude_deg"])
         if not (BBOX[0] <= lon <= BBOX[2] and BBOX[1] <= lat <= BBOX[3]):
             continue
         codes = [r["ident"], r["gps_code"], r["icao_code"]]
         registered = any(ANAC_CODE.match(c or "") for c in codes) or bool(r["local_code"].strip())
+        registered = registered or bool(r.get("iata_code", "").strip()) or r.get("scheduled_service") == "yes" \
+            or r["type"] in ("medium_airport", "large_airport") or is_public(r["name"], r.get("municipality", ""))
         if r["type"] == "heliport":
             continue
-        if registered and r["type"] != "closed":
-            reg.append((lon, lat))
+        if registered:  # fechada mas já foi oficial/pública: não é suspeita
+            if r["type"] != "closed":
+                reg.append((lon, lat))
         elif r["type"] in ("small_airport", "closed"):
             cands.append({"lon": lon, "lat": lat, "src": "ourairports", "name": r["name"],
                           "ends": runways.get(r["ident"]), "closed": r["type"] == "closed"})
@@ -165,6 +197,8 @@ out tags geom;"""
         t = el.get("tags", {})
         codes = [t.get("icao", ""), t.get("ref", ""), t.get("gps_code", "")]
         registered = any(ANAC_CODE.match(c.strip().upper()) for c in codes if c)
+        registered = registered or bool(t.get("iata")) or is_public(t.get("name", ""), t.get("addr:city", "")) \
+            or t.get("aerodrome:type") in ("public", "regional", "international", "military")
         if t.get("aeroway") == "runway" and el.get("geometry"):
             g = el["geometry"]
             a, b = (g[0]["lon"], g[0]["lat"]), (g[-1]["lon"], g[-1]["lat"])
@@ -493,6 +527,15 @@ def analyze(c, years):
         res["why"] = ("água" if wat >= 0.3 else "fraca" if score < MIN_SCORE else "sem vegetação em volta" if side_ndvi < MIN_SIDE else
                       "longa demais" if length > MAX_LEN or r_edge >= S2.N / 2 - 4 else "curta")
         return res
+    # achada só pelo detector: estrada, rio e canal de rejeito também são faixas retas.
+    # Pista acaba no mato numa ponta e, na outra, dá num acesso só ou numa clareira.
+    if c.get("srcs") == ["detector"]:
+        ends = sorted(S2.end_branches(imgs[yref][0], th, ry, a, b, side_ndvi - OPEN_T), key=lambda e: e[1])
+        res["branches"] = [[round(f, 2), n] for f, n in ends]
+        if ends[0][1] > 0 or not (ends[1][1] <= 1 or ends[1][0] >= 0.4):
+            res["status"] = "sem confirmação"
+            res["why"] = "estrada ou rio"
+            return res
     # série anual no eixo fixo
     series = {}
     for y, (v, water, date) in sorted(imgs.items()):
@@ -679,7 +722,7 @@ def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
     found = run_scan(budget_min * scan_share, workers, years) if scan_share > 0 else []
     print("Fontes de pistas")
     cands, reg = [], []
-    for fn in (from_osm, from_ourairports, from_mapbiomas, from_anac):
+    for fn in (from_ourairports, from_osm, from_mapbiomas, from_anac):  # OurAirports antes: dá os nomes de cidade
         try:
             c, r = fn()
         except Exception as e:  # noqa: BLE001
@@ -694,8 +737,8 @@ def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
 
     results_p = CACHE / "results.json"
     store = C.read_json(results_p, {}) or {}
-    if store.get("version") != VERSION:
-        store = {"version": VERSION, "items": {}}
+    if store.get("version") != RESULTS_VERSION:
+        store = {"version": RESULTS_VERSION, "items": {}}
     items = store["items"]
     stale_before = (dt.date.today() - dt.timedelta(days=45)).isoformat()
     todo = [c for c in sites if key_of(c) not in items]
