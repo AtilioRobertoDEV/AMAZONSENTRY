@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common as C  # noqa: E402
 import sentinel2 as S2  # noqa: E402
 
-VERSION = "v2"          # varredura em volta dos garimpos
+VERSION = "v3"          # varredura em volta dos garimpos (v3: janelas de 1,5 km, várias faixas por janela)
 RESULTS_VERSION = "v4"  # checagem ano a ano (v4: água por MNDWI, rumo conhecido)
 OUT = C.DATA_DIR / "airstrips"
 CACHE = C.DATA_DIR / "_cache" / "airstrips"
@@ -411,7 +411,9 @@ def merge(cands, reg, radius_m=900, reg_m=1500):
     xy = np.column_stack([lon * 111.32 * k, lat * 110.57]) * 1000  # metros (aprox.)
     tree = cKDTree(xy)
     # prioridade: quem tem o eixo da pista (ends) primeiro
-    order = sorted(range(len(cands)), key=lambda i: (cands[i]["ends"] is None, cands[i]["src"] != "mapbiomas"))
+    # (o detector por último: uma pista conhecida ou apontada perto vale mais que o achado dele)
+    order = sorted(range(len(cands)), key=lambda i: (cands[i]["src"] == "detector", cands[i]["ends"] is None,
+                                                      cands[i]["src"] != "mapbiomas"))
     used = np.zeros(len(cands), bool)
     out = []
     for i in order:
@@ -681,7 +683,6 @@ def analyze(c, years):
 # Além das candidatas conhecidas, o detector varre a imagem mais recente em volta
 # dos garimpos (janelas de 2 km em cada quadro de ~2 km com garimpo). O que ele
 # acha entra como candidata e passa pela mesma checagem ano a ano.
-SCAN_G = 0.018
 # Pistas achadas só pelo detector: na conferência por amostra (nov/2026) só 1 em cada 4
 # era pista; o resto era estrada, rio ou canal de garimpo. O modelo próprio
 # (airstrip_model.py) já tira bem rio, rua e asfalto, mas ainda aprova estrada de terra
@@ -728,26 +729,68 @@ def classify(sites, items, workers, budget_min):
                 for g in futs:
                     g.cancel()
                 break
-SCAN_SCORE = 0.3
+SCAN_SCORE = 0.2
+SCAN_STRIDE = 0.0135   # janelas de 2 km a cada ~1,5 km
+SCAN_NEAR = 0.03       # até ~3 km de algum garimpo detectado
+SCAN_LINES = 5         # faixas retas tentadas por janela
 
 
 def scan_cells():
+    """Janelas em volta dos garimpos, do garimpo mais recente para o mais antigo."""
     doc = C.read_json(C.DATA_DIR / "mining" / "detections.json")
     if not doc:
         return []
     d = np.asarray(doc["data"], float).reshape(-1, 5)
     cells = {}
+    r = int(np.ceil(SCAN_NEAR / SCAN_STRIDE))
     for lon, lat, per in zip(d[:, 0] / 1000, d[:, 1] / 1000, d[:, 2]):
-        k = (int(np.floor(lon / SCAN_G)), int(np.floor(lat / SCAN_G)))
-        cells[k] = max(cells.get(k, 0), per)
-    # garimpo mais recente primeiro
+        i0, j0 = int(round(lon / SCAN_STRIDE)), int(round(lat / SCAN_STRIDE))
+        for i in range(i0 - r, i0 + r + 1):
+            for j in range(j0 - r, j0 + r + 1):
+                if np.hypot(i * SCAN_STRIDE - lon, j * SCAN_STRIDE - lat) < SCAN_NEAR:
+                    cells[(i, j)] = max(cells.get((i, j), 0), per)
     return [k for k, _ in sorted(cells.items(), key=lambda t: -t[1])]
 
 
-def scan_one(cell, years):
-    lon, lat = (cell[0] + 0.5) * SCAN_G, (cell[1] + 0.5) * SCAN_G
-    if not in_legal([lon], [lat])[0]:
+def _line_ends(epsg, x0, y1, th, ry, a, b):
+    (ax_, ay_), (bx_, by_) = S2.unrotate(th, ry, a), S2.unrotate(th, ry, b)
+    pts = np.array([[x0 + (ax_ + .5) * S2.PX, y1 - (ay_ + .5) * S2.PX], [x0 + (bx_ + .5) * S2.PX, y1 - (by_ + .5) * S2.PX]])
+    lo, la = S2.to_lonlat(epsg, pts[:, 0], pts[:, 1])
+    return [[round(lo[0], 5), round(la[0], 5)], [round(lo[1], 5), round(la[1], 5)]]
+
+
+def _full_extent(con, rx):
+    """A faixa inteira: limiar relativo ao contraste do trecho achado (pista em área aberta
+    de garimpo tem menos contraste que pista no meio da mata)."""
+    a, b = S2.extent(con, rx, OPEN_T)
+    if b > a:
+        a, b = S2.extent(con, rx, max(0.06, 0.5 * float(np.median(con[a:b + 1]))), gap=4)
+    return a, b
+
+
+def _refine(tile, year, ends, th0):
+    """Janela nova centrada no achado, para a pista inteira caber; mesmo rumo (±8°)."""
+    (a1, b1), (a2, b2) = ends
+    epsg, x0, y1 = S2.window_origin(tile, (a1 + a2) / 2, (b1 + b2) / 2)
+    r = year_image(tile, year, x0, y1, tries=4)
+    if r is None:
         return None
+    v, water, date = r
+    score, th, ry, rx, k = S2.line_response(v, search=15, angles=[t % 180 for t in range(th0 - 8, th0 + 9, 2)])
+    con, cen, side = S2.axis_profile(v, th, ry, k)
+    a, b = _full_extent(con, rx)
+    if not 300 <= (b - a + 1) * S2.PX <= 2200:
+        return None
+    return _line_ends(epsg, x0, y1, th, ry, a, b)
+
+
+def scan_one(cell, years):
+    """Até SCAN_LINES faixas retas na janela (a melhor, apaga, a próxima...), cada uma
+    com as medidas do modelo próprio. O modelo decide depois quais parecem pista."""
+    import airstrip_model as AM
+    lon, lat = cell[0] * SCAN_STRIDE, cell[1] * SCAN_STRIDE
+    if not in_legal([lon], [lat])[0]:
+        return []
     tile = S2.tile_of(lat, lon)
     epsg, x0, y1 = S2.window_origin(tile, lon, lat)
     for y in (years[-1], years[-2]):
@@ -755,33 +798,43 @@ def scan_one(cell, years):
         if r is not None:
             break
     else:
-        return None
+        return []
     v, water, date = r
-    score, th, ry, rx, k = S2.line_response(v)
-    if score < SCAN_SCORE:
-        return None
-    con, cen, side = S2.axis_profile(v, th, ry, k)
-    a, b = S2.extent(con, rx, OPEN_T)
-    length = (b - a + 1) * S2.PX
-    (ax_, ay_), (bx_, by_) = S2.unrotate(th, ry, a), S2.unrotate(th, ry, b)
-    edge = max(np.hypot(ax_ - S2.N / 2, ay_ - S2.N / 2), np.hypot(bx_ - S2.N / 2, by_ - S2.N / 2))
-    fp = S2.footprint(th, ry, a, b, pad=1)
-    wat = float(water[fp].mean()) if fp.any() else 0.0
-    if not (400 <= length <= 1800) or edge >= S2.N / 2 - 4 or wat >= 0.2 or k > 2:
-        return None
-    mx, my = (ax_ + bx_) / 2, (ay_ + by_) / 2
-    lo, la = S2.to_lonlat(epsg, [x0 + (mx + .5) * S2.PX], [y1 - (my + .5) * S2.PX])
-    return [round(lo[0], 5), round(la[0], 5)]
+    v = v.copy()
+    fill = float(np.nanmedian(v))
+    core = int(SCAN_STRIDE * 111000 / S2.PX / 2) + 8
+    out = []
+    for _ in range(SCAN_LINES):
+        score, th, ry, rx, k = S2.line_response(v, search=core)
+        if score < SCAN_SCORE:
+            break
+        con, cen, side = S2.axis_profile(v, th, ry, k)
+        a, b = _full_extent(con, rx)
+        fp = S2.footprint(th, ry, a, b, pad=2)
+        wat = float(water[fp].mean()) if fp.any() else 0.0
+        v[S2.footprint(th, ry, max(0, a - 3), b + 3, pad=4)] = fill    # apaga e procura a próxima
+        if not 300 <= (b - a + 1) * S2.PX <= 1800 or wat >= 0.2 or k > 3:
+            continue
+        ends = _line_ends(epsg, x0, y1, th, ry, a, b)
+        ends = _refine(tile, y, ends, th) or ends
+        try:
+            m = AM.measure_example({"ends": ends})
+        except Exception:  # noqa: BLE001
+            m = None
+        if m:
+            out.append({"ends": ends, "x": [round(t, 4) for t in m[0]], "x_v": AM.FEAT_V})
+    return out
 
 
 def run_scan(budget_min, workers, years):
+    import airstrip_model as AM
     p = CACHE / "scan.json"
     doc = C.read_json(p, {}) or {}
-    if doc.get("version") != VERSION:
-        doc = {"version": VERSION, "cells": {}}
+    if doc.get("version") != VERSION or doc.get("x_v") != AM.FEAT_V:
+        doc = {"version": VERSION, "x_v": AM.FEAT_V, "cells": {}}
     done = doc["cells"]
     todo = [c for c in scan_cells() if f"{c[0]},{c[1]}" not in done]
-    print(f"Busca de pistas novas em volta de garimpos: {len(todo)} quadros a varrer ({len(done)} já varridos)")
+    print(f"Busca de pistas novas em volta de garimpos: {len(todo)} janelas a varrer ({len(done)} já varridas)")
     deadline = time.time() + budget_min * 60
     n = found = 0
     with ThreadPoolExecutor(workers) as ex:
@@ -796,22 +849,24 @@ def run_scan(budget_min, workers, years):
             c = futs.pop(f)
             try:
                 r = f.result()
-                done[f"{c[0]},{c[1]}"] = r or 0
-                found += bool(r)
+                done[f"{c[0]},{c[1]}"] = r
+                found += len(r)
             except Exception as e:  # noqa: BLE001
                 print(f"  ! busca {c}: {e}")
             n += 1
-            if n % 200 == 0:
-                print(f"  {n}/{len(todo)} quadros, {found} pistas possíveis")
+            if n % 500 == 0:
+                print(f"  {n}/{len(todo)} janelas, {found} faixas medidas")
                 C.write_json(p, doc)
             if time.time() < deadline:
                 c = next(it, None)
                 if c is not None:
                     futs[ex.submit(scan_one, c, years)] = c
     C.write_json(p, doc)
-    print(f"  varridos nesta rodada: {n}; pistas possíveis: {found}")
-    return [{"lon": v[0], "lat": v[1], "src": "detector", "name": "", "ends": None, "closed": False}
-            for v in done.values() if v]
+    lines = [x for v in done.values() for x in (v or [])]
+    keep = [x for x in lines if (AM.predict(x["x"]) or 0) >= P_DETECTOR] if SHOW_DETECTOR and model_ready() else []
+    print(f"  varridas nesta rodada: {n}; faixas medidas no total: {len(lines)}; com cara de pista (modelo ≥ {P_DETECTOR}): {len(keep)}")
+    return [{"lon": (x["ends"][0][0] + x["ends"][1][0]) / 2, "lat": (x["ends"][0][1] + x["ends"][1][1]) / 2,
+             "src": "detector", "name": "", "ends": x["ends"], "closed": False} for x in keep]
 
 
 # ------------------------------------------------------------------ garimpo
@@ -845,7 +900,7 @@ def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
     CACHE.mkdir(parents=True, exist_ok=True)
     this_year = dt.date.today().year
     years = list(range(S2.FIRST_YEAR, this_year + 1))
-    found = run_scan(budget_min * scan_share, workers, years) if scan_share > 0 else []
+    found = run_scan(budget_min * scan_share, workers, years) if scan_share > 0 and SHOW_DETECTOR else []
     print("Fontes de pistas")
     cands, reg = [], []
     for fn in (from_ourairports, from_osm, from_mapbiomas, from_anac, from_reports):  # OurAirports antes: dá os nomes de cidade
@@ -1189,7 +1244,10 @@ def write_output(sites, items, this_year):
             by_year[row[8]] = by_year.get(row[8], 0) + 1
     cats = {k: sum(1 for row in data if row[16] == v) for k, v in (("sem registro", 0), ("aldeia", 1), ("cidade", 2))}
     reg = registered_rows()
+    for row, km_ in zip(reg, nearest_km([r_[0] for r_ in reg], [r_[1] for r_ in reg], mp)):
+        row.append(km_)
     cats["registrada"] = len(reg)
+    cats["registrada perto de garimpo"] = sum(1 for row in reg if not row[6] and row[10] is not None and row[10] <= NEAR_MINING_KM)
     cats["em terra indígena"] = sum(1 for row in data if row[17] and row[16] == 0)
     prios = {k: sum(1 for row in data if row[18] == v and row[16] == 0)
              for k, v in (("perto de garimpo ou em TI", 1), ("floresta", 2), ("fora da floresta", 3))}
@@ -1207,7 +1265,7 @@ def write_output(sites, items, this_year):
                    "categoria(0 sem registro,1 aldeia,2 cidade ou vila)", "terra_indigena",
                    f"prioridade(1 garimpo a {NEAR_MINING_KM} km ou TI,2 floresta amazônica,3 Cerrado/Pantanal/transição)",
                    "chance_de_ser_pista(modelo)"],
-        "reg_fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "publico", "nome", "codigo", "municipio_uf"],
+        "reg_fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "publico", "nome", "codigo", "municipio_uf", "garimpo_km"],
         "counts": counts,
         "cats": cats,
         "prios": prios,

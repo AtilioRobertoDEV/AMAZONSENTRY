@@ -12,10 +12,13 @@ const DAY_MS = 86400000;
 const NOW_YEAR = new Date().getUTCFullYear();
 const LAYERS = ['deforestation', 'mining'];   // ordem de desenho
 const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', airstrips: '#ff5fa2', clarao: '#fff3df', negro: '#1b140f',
-  aldeia: '#c4a3ff', cidade: '#8cc3ea', anac: '#e9e1d0' };
+  aldeia: '#c4a3ff', cidade: '#8cc3ea', anac: '#e9e1d0', anacg: '#ffb25c' };
+const REG_NEAR_KM = 20;   // registrada "perto de garimpo
 // tipos de pista: 0 sem registro (suspeita), 1 aldeia, 2 cidade ou vila (as três conferidas no Sentinel-2) e as registradas na ANAC
 const AIR_TYPES = [['0', 'Sem registro', 'suspeitas: não achamos registro na ANAC'], ['1', 'Aldeia', 'pista de aldeia ou missão, de uso comunitário'],
-  ['2', 'Cidade ou vila', 'pista pública de cidade ou vila que falta na lista da ANAC'], ['reg', 'Registrada na ANAC', 'aeródromo público ou privado cadastrado'],
+  ['2', 'Cidade ou vila', 'pista pública de cidade ou vila que falta na lista da ANAC'],
+  ['reg', 'Outras registradas', 'aeródromo público ou privado cadastrado na ANAC, longe de garimpo'],
+  ['regg', 'Registrada perto de garimpo', 'aeródromo privado cadastrado na ANAC a até 20 km de garimpo: o registro não impede o uso pelo garimpo'],
   ['fora', 'Fora da floresta', 'Cerrado, Pantanal e a transição do Mato Grosso, longe de garimpo e de terra indígena: quase sempre pista de fazenda']];
 const INK = { deforestation: '#8a5d00', mining: '#0c6f64', airstrips: '#a3195b' };   // mesmas cores, legíveis no painel
 const AIR_STATUS = { 1: 'ativa', 2: 'perdendo uso', 3: 'abandonada', 4: 'reaberta' };
@@ -32,7 +35,7 @@ const TL_YEARS = Object.keys(EOX_YEARS).map(Number);
 const state = {
   mode: 'week', year: NOW_YEAR, cumulative: false, base: 'sat',
   on: { deforestation: true, mining: true, airstrips: true },
-  air: null, airZoom: null, airTypes: new Set(['0']), airHover: null,
+  air: null, airZoom: null, airTypes: new Set(['0', 'regg']), airHover: null,
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
   playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
@@ -229,11 +232,14 @@ function addDataLayers() {
     layout: { 'line-cap': 'butt' },
     paint: { 'line-color': catColor, 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.6, 12, 2.5, 16, 1.8], 'line-dasharray': [1.2, 1.1], 'line-opacity': airOpacity(0.9) } });
   map.addLayer({ id: 'air-reg-line', type: 'line', source: 'src-air-reg', filter: ['==', ['geometry-type'], 'LineString'],
-    paint: { 'line-color': COLOR.anac, 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 1.2, 10, 2, 14, 1.6],
+    paint: { 'line-color': ['case', ['==', ['get', 'near'], 1], COLOR.anacg, COLOR.anac],
+      'line-width': ['interpolate', ['linear'], ['zoom'], 3, ['case', ['==', ['get', 'near'], 1], 2, 1.2], 10, ['case', ['==', ['get', 'near'], 1], 3, 2], 14, 1.6],
       'line-opacity': airOpacity(0.85) } });
   map.addLayer({ id: 'air-reg-dot', type: 'circle', source: 'src-air-reg', filter: ['==', ['geometry-type'], 'Point'],
-    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 1.6, 10, 3.2], 'circle-color': 'rgba(0,0,0,0)',
-      'circle-stroke-color': COLOR.anac, 'circle-stroke-width': 1.3, 'circle-stroke-opacity': airOpacity(0.85) } });
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, ['case', ['==', ['get', 'near'], 1], 2.2, 1.6], 10, ['case', ['==', ['get', 'near'], 1], 4.2, 3.2]],
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-color': ['case', ['==', ['get', 'near'], 1], COLOR.anacg, COLOR.anac],
+      'circle-stroke-width': ['case', ['==', ['get', 'near'], 1], 2, 1.3], 'circle-stroke-opacity': airOpacity(0.85) } });
   map.addLayer({ id: 'air-hit', type: 'line', source: 'src-air', paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 16 } });
   map.addLayer({ id: 'air-reg-hit', type: 'line', source: 'src-air-reg', filter: ['==', ['geometry-type'], 'LineString'],
     paint: { 'line-color': '#000', 'line-opacity': 0, 'line-width': 14 } });
@@ -460,7 +466,8 @@ function periodLabel(p) {
 // último ano visto, fechada desde, km até garimpo, fontes, aberta por ano ("0"-"9" ou "-"), nome.
 const A = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, LEN: 6, B0: 7, B1: 8, ST: 9, LAST: 10, SHUT: 11, KM: 12, SRC: 13, SER: 14, NAME: 15, CAT: 16, TI: 17, PRIO: 18, P: 19 };
 // registradas na ANAC: lon, lat, cabeceiras do OSM (ou null), pública, nome, código, município/UF
-const R = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, PUB: 6, NAME: 7, CODE: 8, PLACE: 9 };
+const R = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, PUB: 6, NAME: 7, CODE: 8, PLACE: 9, KM: 10 };
+const regNear = (r) => !r[R.PUB] && r[R.KM] != null && r[R.KM] <= REG_NEAR_KM;   // privada; as públicas são aeroportos de cidade
 
 // opacidade das pistas: mais leve com zoom alto e quase sumida sob o mouse (para ver a imagem embaixo)
 function airOpacity(base, dim = 1) {
@@ -517,12 +524,14 @@ async function airData() {
   });
   list.sort((a, b) => b.prio - a.prio);   // as de garimpo e terra indígena por cima
   const total = cats[0];
-  const reg = state.mode === 'history' || !types.has('reg') ? [] : (doc.reg || []);
+  const allReg = doc.reg || [];
+  const reg = state.mode === 'history' ? [] : allReg.filter((r) => types.has(regNear(r) ? 'regg' : 'reg'));
+  const regNearN = allReg.filter(regNear).length;
   const born = state.mode === 'history' ? doc.data.filter((r) => r[A.B1] === y && !r[A.CAT] && !far(r)).length : 0;
   const note = state.mode === 'history'
     ? (y < first ? `antes de ${first}, só as datadas pela perda de floresta` : `situação em ${y}${born ? `; ${born} surgiram até ${y}` : ''}`)
     : `${used0} em uso no último ano com imagem boa`;
-  return { total, list, by, note, cats, reg, used0, fora, regTotal: (doc.reg || []).length };
+  return { total, list, by, note, cats, reg, used0, fora, regNear: regNearN, regTotal: allReg.length - regNearN };
 }
 
 function airFeatures(r) {
@@ -551,7 +560,7 @@ function drawAir() {
   if (!r || state.mode === 'radar' || !state.on.airstrips) { src.setData(EMPTY); reg.setData(EMPTY); return; }
   state.airZoom = Math.round(map.getZoom() * 2) / 2;
   src.setData({ type: 'FeatureCollection', features: r.list.length ? airFeatures(r) : [] });
-  reg.setData({ type: 'FeatureCollection', features: r.reg.map((d, i) => ({ type: 'Feature', properties: { i },
+  reg.setData({ type: 'FeatureCollection', features: r.reg.map((d, i) => ({ type: 'Feature', properties: { i, near: regNear(d) ? 1 : 0 },
     geometry: d[R.X1] != null ? { type: 'LineString', coordinates: [[d[R.X1], d[R.Y1]], [d[R.X2], d[R.Y2]]] }
       : { type: 'Point', coordinates: [d[R.LON], d[R.LAT]] } })) });
 }
@@ -563,8 +572,8 @@ function drawAirKey() {
   ul.innerHTML = AIR_KEY.map(([st, name, why]) => `<li data-st="${st}" title="${esc(why)}"><i aria-hidden="true"></i>${name}<b>${fmtInt(r.by[st] || 0)}</b></li>`).join('');
   const hist = state.mode === 'history';
   box.innerHTML = AIR_TYPES.map(([k, name, why]) => {
-    const n = k === 'reg' ? r.regTotal : k === 'fora' ? r.fora : r.cats[k];
-    const off = k === 'reg' && hist;
+    const n = k === 'reg' ? r.regTotal : k === 'regg' ? r.regNear : k === 'fora' ? r.fora : r.cats[k];
+    const off = (k === 'reg' || k === 'regg') && hist;
     return `<button type="button" data-type="${k}" aria-pressed="${state.airTypes.has(k) && !off}" title="${esc(off ? 'sem data: só aparece fora do histórico' : why)}"${off ? ' disabled' : ''}>
       <i aria-hidden="true"></i>${name}<b>${fmtInt(n || 0)}</b></button>`;
   }).join('');
@@ -651,6 +660,7 @@ function airRegPopup(i, ll) {
   const html = `<h3>${esc(r[R.NAME] || 'Aeródromo registrado')}</h3>
     <div class="big">${esc(r[R.CODE] || '')}</div>${esc(r[R.PLACE] || '')}
     <p class="air-reg">Registrada na ANAC como aeródromo ${r[R.PUB] ? 'público' : 'privado'}.</p>
+    ${regNear(r) ? `<p>${r[R.KM] < 1 ? 'Colada a um garimpo' : `Garimpo mais perto a ${nf.format(r[R.KM])} km`}. O registro não impede que a pista sirva ao garimpo.</p>` : ''}
     <p class="fine">${r[R.X1] != null ? 'Traçado da pista: OpenStreetMap.' : 'Sem traçado da pista: só a posição do cadastro.'} Cadastro de aeródromos da ANAC, guardado no site.</p>
     <button class="tl-open" data-kind="airstrip" data-lng="${r[R.LON]}" data-lat="${r[R.LAT]}">Ver a evolução por satélite</button>
     ${geoRow(r[R.LON], r[R.LAT])}`;
@@ -1353,7 +1363,7 @@ function syncURL() {
   const ver = ['deforestation', 'mining', 'airstrips'].filter((l) => state.on[l]);
   if (ver.length < 3 && ver.length) q.set('ver', ver.map((l) => VER[l]).join(','));
   const tipos = [...state.airTypes].sort().join(',');
-  if (tipos !== '0') q.set('pistas', tipos.replace('reg', 'anac'));
+  if (tipos !== '0,regg') q.set('pistas', [...state.airTypes].sort().map((t) => (t === 'reg' ? 'anac' : t === 'regg' ? 'anac-garimpo' : t)).join(','));
   if (state.base === 'dark') q.set('fundo', 'mapa');
   else if (state.mode !== 'history' && state.imgYear) q.set('imagem', state.imgYear);
   if (state.legal !== 'all') q.set('autorizacao', state.legal);
@@ -1579,7 +1589,7 @@ function bind() {
     $$('.layer[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(state.on[b.dataset.layer])));
   }
   if (q.get('ano')) { const [a, b] = yearBounds(); state.year = Math.min(b, Math.max(a, +q.get('ano'))); }
-  const tipos = (q.get('pistas') || '').split(',').map((t) => (t === 'anac' ? 'reg' : t)).filter((t) => AIR_TYPES.some(([k]) => k === t));
+  const tipos = (q.get('pistas') || '').split(',').map((t) => (t === 'anac' ? 'reg' : t === 'anac-garimpo' ? 'regg' : t)).filter((t) => AIR_TYPES.some(([k]) => k === t));
   if (tipos.length) state.airTypes = new Set(tipos);
   const evo = (q.get('evolucao') || '').split(',').map(Number);
   if (evo.length === 2 && evo.every(Number.isFinite)) setTimeout(() => openTimelapse(evo[0], evo[1]), 300);
