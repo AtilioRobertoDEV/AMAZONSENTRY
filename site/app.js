@@ -418,12 +418,17 @@ async function legalIndex() {
   state.legalDoc = doc;
   state.legalIdx = m;
   $('#legal-opt').hidden = !state.on.mining;
+  // sem os títulos da ANM só dá para dizer o que está em área protegida
+  $('#legal').hidden = !doc.titulos_ok;
+  $('#legal-label').textContent = doc.titulos_ok ? 'Garimpo com autorização de lavra na ANM?' : 'Garimpo em área protegida';
+  if (!doc.titulos_ok) state.legal = 'all';
   return m;
 }
-const legalClass = (L) => (!L ? null : L.t < 2 || L.a === 1 || L.a === 2 ? 'sem' : 'com');
+const legalClass = (L) => (!L ? null : L.a === 1 || L.a === 2 ? 'sem' : L.t < 0 ? null : L.t < 2 ? 'sem' : 'com');
 const pct = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : '0%');
 function legalSummary(t) {
   if (!t.all) return '';
+  if (!state.legalDoc?.titulos_ok) return `${pct(t.prot, t.all)} da área em terra indígena ou UC de proteção integral, onde garimpo é proibido.`;
   return `${pct(t.sem, t.all)} da área sem autorização de lavra na ANM${t.prot ? `, ${pct(t.prot, t.all)} em terra indígena ou UC de proteção integral` : ''}.`;
 }
 
@@ -434,19 +439,20 @@ function legalPopup(p) {
   let sem = 0, com = 0, semTit = 0, pedido = 0;
   const areas = new Map();
   for (const it of r.items) {
-    if (it.x < p.x0 || it.x >= x1 || it.y < p.y0 || it.y >= y1 || !it.cls) continue;
-    if (it.cls === 'com') com += it.v; else sem += it.v;
+    if (it.x < p.x0 || it.x >= x1 || it.y < p.y0 || it.y >= y1 || !it.L) continue;
+    if (it.L.n) areas.set(it.L.n, { v: (areas.get(it.L.n)?.v || 0) + it.v, a: it.L.a });
+    if (!state.legalDoc.titulos_ok) continue;
+    if (it.cls === 'com') com += it.v; else if (it.cls === 'sem') sem += it.v;
     if (it.L.t === 0) semTit += it.v;
     if (it.L.t === 1) pedido += it.v;
-    if (it.L.n) areas.set(it.L.n, (areas.get(it.L.n) || 0) + it.v);
   }
-  if (!sem && !com) return '';
-  const tops = [...areas.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2);
+  if (!sem && !com && !areas.size) return '';
+  const tops = [...areas.entries()].sort((a, b) => b[1].v - a[1].v).slice(0, 2);
   return `<ul class="legal">
     ${sem ? `<li class="sem"><b>${haTxt(sem)}</b> sem autorização${semTit && pedido ? ` (${haTxt(semTit)} sem nenhum processo, ${haTxt(pedido)} só com pedido ou pesquisa)` : semTit ? ', sem nenhum processo na ANM' : pedido ? ', só com pedido ou pesquisa na ANM' : ''}</li>` : ''}
     ${com ? `<li class="com"><b>${haTxt(com)}</b> com lavra autorizada na ANM</li>` : ''}
-    ${tops.map(([n, v]) => `<li class="area">${haTxt(v)} dentro de ${esc(n)}</li>`).join('')}
-  </ul><p class="fine">Autorização = concessão de lavra, lavra garimpeira, licenciamento ou registro de extração na ANM. A licença ambiental não é conferida.</p>`;
+    ${tops.map(([n, o]) => `<li class="area">${haTxt(o.v)} dentro de ${esc(n)}${o.a === 1 || o.a === 2 ? ', onde garimpo é proibido' : ''}</li>`).join('')}
+  </ul><p class="fine">${state.legalDoc.titulos_ok ? 'Autorização = concessão de lavra, lavra garimpeira, licenciamento ou registro de extração na ANM. A licença ambiental não é conferida.' : 'Os títulos da ANM ainda não foram carregados.'}</p>`;
 }
 
 function setLegal(v) {

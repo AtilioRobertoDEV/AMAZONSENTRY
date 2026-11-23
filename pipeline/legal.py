@@ -30,7 +30,11 @@ import numpy as np
 import common as C
 
 UFS = ["AC", "AM", "AP", "MA", "MT", "PA", "RO", "RR", "TO"]   # bacia amazônica no Brasil
-SIGMINE = "https://app.anm.gov.br/dadosabertos/SIGMINE/PROCESSOS_MINERARIOS/{uf}.zip"
+SIGMINE = ["https://app.anm.gov.br/dadosabertos/SIGMINE/PROCESSOS_MINERARIOS/{uf}.zip",
+           "http://app.anm.gov.br/dadosabertos/SIGMINE/PROCESSOS_MINERARIOS/{uf}.zip"]
+# A ANM recusa conexões de fora do Brasil (os servidores do GitHub ficam nos EUA). Quando
+# não der para baixar, vale o que estiver em _cache/sigmine: o zip original da ANM
+# ({uf}.zip, posto lá à mão ou por outra máquina) ou a versão enxuta já processada.
 WDPA = "https://d1gam3xoknrgr2.cloudfront.net/current/WDPA_WDOECM_{mon}{year}_Public_BRA_shp.zip"
 FUNAI_WFS = ("https://geoserver.funai.gov.br/geoserver/Funai/ows?service=WFS&version=1.0.0"
              "&request=GetFeature&typeName=Funai:tis_poligonais&outputFormat=application/json")
@@ -118,21 +122,80 @@ def run_sigmine(xy, tree, tmp: Path):
             return None
         return (2 if fase in LAVRA else 1, fase)
 
-    hits, ok = {}, 0
+    cdir = C.DATA_DIR / "_cache" / "sigmine"
+    cdir.mkdir(parents=True, exist_ok=True)
+    hits, ok, when = {}, 0, []
     for uf in UFS:
-        url = SIGMINE.format(uf=uf)
-        try:
-            z = C.download(url, tmp / f"{uf}.zip", timeout=600).read_bytes()
-        except Exception as e:  # noqa: BLE001
-            print(f"  ! SIGMINE {uf} indisponível: {e}")
+        z = None
+        for url in SIGMINE:
+            try:
+                z = C.download(url.format(uf=uf), tmp / f"{uf}.zip", timeout=600, retries=2).read_bytes()
+                origem = "ANM (download)"
+                break
+            except Exception as e:  # noqa: BLE001
+                print(f"  ! SIGMINE {uf} indisponível em {url.split('/')[2]}: {str(e)[:120]}")
+        raw = cdir / f"{uf}.zip"
+        if z is None and raw.exists():
+            z, origem = raw.read_bytes(), "zip guardado"
+        if z is not None:
+            feats = list(shapes_in_zip(z))
+            shp_iter = iter(feats)
+            # guarda só os processos perto de garimpo, simplificados, para as próximas vezes
+            keep_compact(cdir / f"{uf}.json", xy, tree, feats)
+            raw.unlink(missing_ok=True)
+            stamp = C.now_iso()
+            C.write_json(cdir / f"{uf}.meta.json", {"em": stamp, "origem": origem})
+        elif (cdir / f"{uf}.json").exists():
+            shp_iter = compact_iter(cdir / f"{uf}.json")
+            origem = "versão guardada"
+            stamp = (C.read_json(cdir / f"{uf}.meta.json", {}) or {}).get("em")
+        else:
+            print(f"  ! SIGMINE {uf}: sem dados")
             continue
-        h, n = hit_polygons(xy, tree, shapes_in_zip(z), classify)
-        print(f"  SIGMINE {uf}: {n} processos sobre detecções, {len(h)} detecções com processo")
+        h, n = hit_polygons(xy, tree, shp_iter, classify)
+        print(f"  SIGMINE {uf} ({origem}): {n} processos sobre detecções, {len(h)} detecções com processo")
         for i, v in h.items():
             if i not in hits or v[0] > hits[i][0]:
                 hits[i] = v
         ok += 1
-    return hits, ok == len(UFS)
+        if stamp:
+            when.append(stamp)
+    return hits, ok, (min(when) if when else None)
+
+
+class _Shp:
+    """Imita o shape do pyshp a partir de GeoJSON guardado."""
+
+    def __init__(self, g):
+        from shapely.geometry import shape as to_geom
+        self.__geo_interface__ = g
+        self.bbox = to_geom(g).bounds
+        self.points = [0]
+
+
+def compact_iter(path: Path):
+    for f in (C.read_json(path, {}) or {}).get("f", []):
+        yield _Shp(f["g"]), {"FASE": f["fase"]}
+
+
+def keep_compact(path: Path, xy, tree, feats):
+    from shapely import box
+    from shapely.geometry import mapping, shape as to_geom
+
+    out = []
+    for shp, props in feats:
+        if not shp.points:
+            continue
+        x0, y0, x1, y1 = shp.bbox
+        if not len(tree.query(box(x0 - 0.1, y0 - 0.1, x1 + 0.1, y1 + 0.1))):
+            continue
+        try:
+            g = to_geom(shp.__geo_interface__).simplify(0.0002)
+        except Exception:  # noqa: BLE001
+            continue
+        out.append({"fase": norm(props.get("FASE") or props.get("fase")), "g": mapping(g)})
+    C.write_json(path, {"f": out})
+    print(f"    guardados {len(out)} processos perto de garimpo")
 
 
 def wdpa_bytes(tmp: Path):
@@ -212,17 +275,21 @@ def run():
     print(f"{len(xy)} detecções para conferir")
     cache_p = C.DATA_DIR / "_cache" / "legal_cache.json"
     cache = C.read_json(cache_p, {}) or {}
+    if cache.get("v") != 2:      # v1 gravou títulos vazios quando a ANM não respondeu
+        cache = {"v": 2}
     tmp = Path(tempfile.mkdtemp(prefix="legal"))
 
     key = lambda i: f"{round(xy[i, 0] * 1000)},{round(xy[i, 1] * 1000)}"  # noqa: E731
 
-    titles, complete = run_sigmine(xy, tree, tmp)
-    if complete or not cache.get("titulo"):
+    titles, n_uf, stamp = run_sigmine(xy, tree, tmp)
+    if n_uf == len(UFS):
         cache["titulo"] = {key(i): v[0] for i, v in titles.items()}
         cache["titulo_fases"] = {key(i): v[1] for i, v in titles.items()}
-        cache["titulo_em"] = C.now_iso()
+        cache["titulo_em"] = stamp
+    elif n_uf:
+        print(f"  SIGMINE só de {n_uf} estados: mantendo a checagem anterior")
     else:
-        print("  SIGMINE incompleto: mantendo a checagem anterior")
+        print("  SIGMINE indisponível: sem checagem de títulos")
 
     prot, names, fonte = run_protected(xy, tree, tmp)
     if fonte:
@@ -236,7 +303,7 @@ def run():
     cnt = {"lavra": 0, "pedido": 0, "sem_titulo": 0, "ti": 0, "uc_pi": 0, "uc_us": 0}
     for i in range(len(xy)):
         k = key(i)
-        t = cache.get("titulo", {}).get(k, 0)
+        t = cache["titulo"].get(k, 0) if "titulo" in cache else -1
         a, nome = cache.get("area", {}).get(k, [0, None])
         ni = -1
         if nome:
@@ -245,14 +312,16 @@ def run():
             ni = nomes.index(nome)
         x, y = map(int, k.split(","))
         rows.extend((x, y, t, a, ni))
-        cnt[["sem_titulo", "pedido", "lavra"][t]] += 1
+        if t >= 0:
+            cnt[["sem_titulo", "pedido", "lavra"][t]] += 1
         if a:
             cnt[["", "ti", "uc_pi", "uc_us"][a]] += 1
     print(f"  resultado: {cnt}")
     C.write_json(C.DATA_DIR / "mining" / "legal.json", {
         "v": 1,
         "kind": "garimpo x títulos minerários e áreas protegidas",
-        "fields": ["lon*1000", "lat*1000", "titulo(2=lavra autorizada,1=pedido/pesquisa,0=nenhum)",
+        "titulos_ok": "titulo" in cache,
+        "fields": ["lon*1000", "lat*1000", "titulo(2=lavra autorizada,1=pedido/pesquisa,0=nenhum,-1=sem dado)",
                    "area(1=terra indigena,2=UC protecao integral,3=UC uso sustentavel)", "nome"],
         "fontes": {"titulos": "ANM SIGMINE (processos minerários)", "areas": cache.get("area_fonte")},
         "titulos_em": cache.get("titulo_em"), "areas_em": cache.get("area_em"),
