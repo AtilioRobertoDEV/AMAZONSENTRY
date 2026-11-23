@@ -99,7 +99,7 @@ ANAC = ["https://sistemas.anac.gov.br/dadosabertos/Aerodromos/Aer%C3%B3dromos%20
 MAPBIOMAS = "https://storage.googleapis.com/mapbiomas-workspace/INFRASTRUCTURE/ORIGINALS/BRAZIL/WORKSPACE/"
 HANSEN = "https://storage.googleapis.com/earthenginepartners-hansen"
 
-SRC_BITS = {"osm": 1, "ourairports": 2, "mapbiomas": 4, "detector": 8}
+SRC_BITS = {"osm": 1, "ourairports": 2, "mapbiomas": 4, "detector": 8, "apontada": 16}
 STATUS = {"ativa": 1, "perdendo uso": 2, "abandonada": 3, "reaberta": 4, "sem confirmação": 0}
 
 OPEN_T = 0.12       # contraste mínimo (lados - eixo) para o pixel do eixo contar como aberto
@@ -339,6 +339,19 @@ def _read_shp_points(blob: bytes):
         ends = (tuple(pts[0]), tuple(pts[-1])) if s.shapeType in (3, 13, 23) and len(pts) >= 2 else None
         out.append((sum(xs) / len(xs), sum(ys) / len(ys), ends))
     return out
+
+
+REPORTS = Path(__file__).resolve().parent / "airstrip_reports.json"
+
+
+def from_reports():
+    """Pistas apontadas por quem usa o site (coordenadas copiadas do popup). Passam pela
+    mesma conferência no Sentinel-2 que as outras."""
+    doc = json.loads(REPORTS.read_text()) if REPORTS.exists() else {}
+    cands = [{"lon": float(r["lon"]), "lat": float(r["lat"]), "src": "apontada", "name": r.get("nome", ""),
+              "ends": None, "closed": False} for r in doc.get("items", [])]
+    print(f"  Apontadas: {len(cands)}")
+    return cands, []
 
 
 def from_mapbiomas():
@@ -824,7 +837,7 @@ def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
     found = run_scan(budget_min * scan_share, workers, years) if scan_share > 0 else []
     print("Fontes de pistas")
     cands, reg = [], []
-    for fn in (from_ourairports, from_osm, from_mapbiomas, from_anac):  # OurAirports antes: dá os nomes de cidade
+    for fn in (from_ourairports, from_osm, from_mapbiomas, from_anac, from_reports):  # OurAirports antes: dá os nomes de cidade
         try:
             c, r = fn()
         except Exception as e:  # noqa: BLE001
@@ -1172,7 +1185,7 @@ def write_output(sites, items, this_year):
         "first_year": S2.FIRST_YEAR,
         "fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "comprimento_m", "surgiu_depois_de", "surgiu_ate",
                    "situacao(1 ativa,2 perdendo uso,3 abandonada,4 reaberta)", "ultimo_ano_visto", "fechada_desde",
-                   "garimpo_km", "fontes(1 osm,2 ourairports,4 mapbiomas,8 detector)", "aberta_por_ano", "nome",
+                   "garimpo_km", "fontes(1 osm,2 ourairports,4 mapbiomas,8 detector,16 apontada)", "aberta_por_ano", "nome",
                    "categoria(0 sem registro,1 aldeia,2 cidade ou vila)", "terra_indigena",
                    f"prioridade(1 garimpo a {NEAR_MINING_KM} km ou TI,2 floresta amazônica,3 Cerrado/Pantanal/transição)",
                    "chance_de_ser_pista(modelo)"],

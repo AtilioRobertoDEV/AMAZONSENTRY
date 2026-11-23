@@ -39,6 +39,9 @@ import sentinel2 as S2  # noqa: E402
 
 CACHE = C.DATA_DIR / "_cache" / "airstrips"
 MODEL = Path(__file__).parent / "airstrip_model.json"
+LABELS = Path(__file__).parent / "airstrip_labels.json"   # achados do detector conferidos a olho
+HARD = {"estrada_detector", "garimpo", "pista_detector"}   # pesam mais no treino (são raros e difíceis)
+HARD_W = 4.0
 BANDS = ("B02", "B03", "B04", "B08", "B11", "B12")
 ROADS = "trunk|primary|secondary|tertiary|unclassified|residential|track|service"
 WATERS = "river|canal|stream|ditch|drain"
@@ -209,6 +212,8 @@ def examples(max_neg_per_kind=900, seed=3):
     for kind, lst in neg.items():
         rnd.shuffle(lst)
         out += lst[:max_neg_per_kind]
+    if LABELS.exists():
+        out += json.loads(LABELS.read_text())["items"]
     print("exemplos:", {k: sum(1 for e in out if e["kind"] == k) for k in sorted({e["kind"] for e in out})})
     return out
 
@@ -405,12 +410,13 @@ def train(path=None):
     X = np.array([[r["x"][i] for i in use] for r in rows])
     y = np.array([r["label"] for r in rows])
     kinds = np.array([r["kind"] for r in rows])
+    w = np.where(np.isin(kinds, list(HARD)), HARD_W, 1.0)
     # validação por região (quadros de 1°) para não medir acerto com vizinhos do treino
     grp = np.array([int(np.floor((r["ends"][0][0]) / 1.0)) * 1000 + int(np.floor(r["ends"][0][1] / 1.0)) for r in rows])
     params = dict(n_estimators=500, max_depth=4, learning_rate=0.04, subsample=0.8, random_state=0)
     prob = np.zeros(len(y))
     for tr, te in GroupKFold(5).split(X, y, grp):
-        m = GradientBoostingClassifier(**params).fit(X[tr], y[tr])
+        m = GradientBoostingClassifier(**params).fit(X[tr], y[tr], sample_weight=w[tr])
         prob[te] = m.predict_proba(X[te])[:, 1]
     report = {"n": len(y), "by_kind": {}}
     for t in (0.5, 0.7):
@@ -420,7 +426,7 @@ def train(path=None):
         sel = kinds == kd
         report["by_kind"][kd] = {"n": int(sel.sum()), "chamadas_de_pista": round(float((prob[sel] >= 0.5).mean()), 3)}
     print(json.dumps(report, indent=1, ensure_ascii=False))
-    m = GradientBoostingClassifier(**params).fit(X, y)
+    m = GradientBoostingClassifier(**params).fit(X, y, sample_weight=w)
     imp = sorted(zip([FEATURES[i] for i in use], m.feature_importances_), key=lambda t: -t[1])[:12]
     print("medidas mais usadas:", ", ".join(f"{n} {v:.2f}" for n, v in imp))
     trees = []
@@ -428,7 +434,8 @@ def train(path=None):
         t = est.tree_
         trees.append([t.children_left.tolist(), t.children_right.tolist(), t.feature.tolist(),
                       [round(float(v), 6) for v in t.threshold], [round(float(v), 6) for v in t.value[:, 0, 0]]])
-    init = float(np.log(y.mean() / (1 - y.mean())))
+    pw = float(np.average(y, weights=w))   # o "chute inicial" do sklearn usa a média ponderada
+    init = float(np.log(pw / (1 - pw)))
     MODEL.write_text(json.dumps({"trained": dt.date.today().isoformat(), "features": FEATURES, "init": init, "use": use,
                                  "lr": params["learning_rate"], "trees": trees, "report": report},
                                 separators=(",", ":")))

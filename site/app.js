@@ -521,7 +521,7 @@ function airYears(r, first) {
   }).join('')}</div>`;
 }
 
-const SRC_NAMES = [[1, 'OpenStreetMap'], [2, 'OurAirports'], [4, 'MapBiomas'], [8, 'detector do site']];
+const SRC_NAMES = [[1, 'OpenStreetMap'], [2, 'OurAirports'], [4, 'MapBiomas'], [8, 'detector do site'], [16, 'apontada por quem usa o site']];
 
 function airPopup(i, ll) {
   const doc = state.air, r = doc.data[i], first = doc.first_year || 2017;

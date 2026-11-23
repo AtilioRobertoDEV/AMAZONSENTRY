@@ -110,6 +110,10 @@ no OSM contra 1.369 trechos retos de estradas de terra, asfalto, ruas e rios do 
 (`.github/workflows/train-airstrips.yml` junta e mede os exemplos; `python airstrip_model.py train` grava
 `airstrip_model.json`). Na validação por região (quadros de 1°), 91% das pistas passam e só 10-13% dos rios,
 ruas e asfalto; estrada de terra ainda passa em ~45%. Pistas com chance abaixo de 30% saem do mapa. O detector
-segue desligado: o modelo ainda aprova estrada de terra larga e fileira de cavas de garimpo. O detector também varre a imagem em volta dos garimpos atrás de
+segue desligado: o modelo ainda aprova estrada de terra larga e fileira de cavas de garimpo. Em 23/11/2026 conferimos a olho 96 achados do detector
+(2 pistas, 28 cavas de garimpo, 64 estradas); eles entram no treino com peso maior (`pipeline/airstrip_labels.json`).
+
+Pistas apontadas por quem usa o site (coordenadas copiadas do popup) entram em `pipeline/airstrip_reports.json`
+e passam pela mesma conferência no Sentinel-2. O detector também varre a imagem em volta dos garimpos atrás de
 pistas que ninguém mapeou. Por enquanto o que só ele acha não vai para o mapa: na conferência por amostra,
 a maior parte era estrada, rio ou canal de garimpo (`SHOW_DETECTOR` em `airstrips.py`).

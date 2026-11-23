@@ -1,0 +1,1509 @@
+{
+"about": "Achados do detector conferidos a olho nas imagens Sentinel-2 (exemplos difíceis para o treino).",
+"items": [
+{
+"ends": [
+[
+-65.06306,
+-9.36333
+],
+[
+-65.06308,
+-9.36622
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-65.0632,-9.3669",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-51.43492,
+0.6379
+],
+[
+-51.43576,
+0.63309
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-51.4356,0.6342",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-54.95776,
+-10.65936
+],
+[
+-54.96423,
+-10.66053
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-54.9610,-10.6600",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-54.84859,
+-10.24723
+],
+[
+-54.85383,
+-10.2535
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-54.8512,-10.2504",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.36753,
+-6.24059
+],
+[
+-57.37189,
+-6.24136
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-57.3754,-6.2408",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.27423,
+-6.22255
+],
+[
+-57.27145,
+-6.22385
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-57.2724,-6.2233",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-52.1686,
+-15.47578
+],
+[
+-52.17138,
+-15.47845
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-52.1688,-15.4760",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.39903,
+-10.41125
+],
+[
+-56.39985,
+-10.41431
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-56.3995,-10.4155",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.44749,
+-5.46584
+],
+[
+-55.45097,
+-5.46711
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-55.4476,-5.4658",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-63.6069,
+-10.57457
+],
+[
+-63.5985,
+-10.57459
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-63.6015,-10.5746",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.41833,
+-7.71066
+],
+[
+-56.41307,
+-7.71065
+]
+],
+"label": 1,
+"kind": "pista_detector",
+"id": "lab_-56.4155,-7.7107",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.33161,
+-6.67374
+],
+[
+-56.3271,
+-6.67412
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-56.3293,-6.6739",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-54.31217,
+-15.6902
+],
+[
+-54.31654,
+-15.69537
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-54.3144,-15.6929",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-46.46519,
+-2.08948
+],
+[
+-46.46458,
+-2.09295
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-46.4649,-2.0911",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-51.41568,
+-5.92554
+],
+[
+-51.41843,
+-5.92829
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-51.4183,-5.9280",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.86764,
+-6.47084
+],
+[
+-56.86339,
+-6.47084
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.8657,-6.4708",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-54.84083,
+-7.68139
+],
+[
+-54.82977,
+-7.68133
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-54.8353,-7.6814",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.37471,
+-9.39267
+],
+[
+-57.37807,
+-9.395
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-57.3741,-9.3888",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-51.34836,
+-7.05018
+],
+[
+-51.35142,
+-7.05129
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-51.3494,-7.0513",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-54.64114,
+-10.53237
+],
+[
+-54.63918,
+-10.53509
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-54.6418,-10.5341",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-58.4225,
+-6.07756
+],
+[
+-58.42579,
+-6.07945
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-58.4239,-6.0783",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.05757,
+-9.35085
+],
+[
+-57.05863,
+-9.35478
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-57.0582,-9.3530",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.28327,
+-6.84672
+],
+[
+-56.27879,
+-6.84929
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.2824,-6.8473",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.9852,
+-5.0495
+],
+[
+-56.98477,
+-5.05445
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-56.9850,-5.0520",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.07966,
+-9.43625
+],
+[
+-57.08107,
+-9.44007
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-57.0804,-9.4383",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-63.6362,
+-10.50165
+],
+[
+-63.63544,
+-10.50592
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-63.6358,-10.5037",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.65948,
+-5.88883
+],
+[
+-56.66014,
+-5.89257
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.6598,-5.8907",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-54.49774,
+-10.48876
+],
+[
+-54.50087,
+-10.49024
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-54.4993,-10.4895",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-54.82208,
+-10.60927
+],
+[
+-54.82296,
+-10.61444
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-54.8226,-10.6124",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.47383,
+-6.98702
+],
+[
+-56.475,
+-6.99025
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.4721,-6.9940",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.6759,
+-10.64835
+],
+[
+-55.68157,
+-10.64936
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.6789,-10.6488",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.88469,
+-6.46524
+],
+[
+-56.88397,
+-6.46934
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.8826,-6.4711",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.45642,
+-9.52637
+],
+[
+-57.46297,
+-9.5275
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-57.4604,-9.5271",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.34012,
+-6.19756
+],
+[
+-57.33746,
+-6.1991
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-57.3364,-6.1999",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-47.72399,
+-11.58477
+],
+[
+-47.72726,
+-11.58855
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-47.7257,-11.5867",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.66812,
+-6.50612
+],
+[
+-55.66149,
+-6.50852
+]
+],
+"label": 1,
+"kind": "pista_detector",
+"id": "lab_-55.6649,-6.5073",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.66035,
+-10.64688
+],
+[
+-55.6647,
+-10.64939
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.6625,-10.6481",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-53.685,
+-5.96113
+],
+[
+-53.68792,
+-5.96526
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-53.6864,-5.9630",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-54.63193,
+-10.55223
+],
+[
+-54.63694,
+-10.55645
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-54.6350,-10.5547",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.42174,
+-9.53085
+],
+[
+-56.4159,
+-9.53084
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-56.4188,-9.5308",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.3454,
+-10.39956
+],
+[
+-56.34864,
+-10.40013
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-56.3480,-10.4000",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.11583,
+-7.92137
+],
+[
+-56.11519,
+-7.92494
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.1141,-7.9258",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.06422,
+-6.16277
+],
+[
+-56.05638,
+-6.16727
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-56.0572,-6.1665",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.08518,
+-6.97081
+],
+[
+-55.08919,
+-6.9727
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.0875,-6.9719",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-62.3113,
+-10.10711
+],
+[
+-62.30574,
+-10.1071
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-62.3083,-10.1071",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.37439,
+-9.33216
+],
+[
+-57.37284,
+-9.33792
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-57.3735,-9.3354",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.84696,
+-6.26574
+],
+[
+-55.85096,
+-6.27053
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.8489,-6.2681",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.43875,
+-9.58614
+],
+[
+-57.44673,
+-9.58753
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-57.4449,-9.5872",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.66535,
+-9.53293
+],
+[
+-57.66122,
+-9.53366
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-57.6632,-9.5333",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-63.62283,
+-10.57692
+],
+[
+-63.6276,
+-10.57817
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-63.6261,-10.5778",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-63.61898,
+-10.58625
+],
+[
+-63.61647,
+-10.58981
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-63.6178,-10.5878",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.60369,
+-7.88916
+],
+[
+-56.60369,
+-7.89278
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.6044,-7.8939",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.28965,
+-10.19368
+],
+[
+-55.29174,
+-10.19947
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.2903,-10.1954",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-68.96333,
+-2.12989
+],
+[
+-68.96556,
+-2.13213
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-68.9630,-2.1291",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.53229,
+-5.73301
+],
+[
+-56.53585,
+-5.7392
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.5341,-5.7361",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.36331,
+-5.77992
+],
+[
+-56.367,
+-5.78165
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.3651,-5.7808",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-49.90849,
+-6.42174
+],
+[
+-49.90373,
+-6.42346
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-49.9055,-6.4228",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.49558,
+-1.79286
+],
+[
+-56.49199,
+-1.79454
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.4937,-1.7937",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-63.60305,
+-10.60719
+],
+[
+-63.59932,
+-10.60892
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-63.6055,-10.6063",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-59.2532,
+-15.3785
+],
+[
+-59.25453,
+-15.38311
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-59.2538,-15.3807",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-52.40482,
+-6.02493
+],
+[
+-52.4089,
+-6.02727
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-52.4106,-6.0245",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-63.65022,
+3.73928
+],
+[
+-63.64565,
+3.73888
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-63.6524,3.7370",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-49.72056,
+-6.41032
+],
+[
+-49.72392,
+-6.41514
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-49.7222,-6.4127",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.39769,
+-6.70093
+],
+[
+-56.40326,
+-6.70758
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-56.4002,-6.7040",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-59.18593,
+-11.68873
+],
+[
+-59.18914,
+-11.69244
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-59.1877,-11.6909",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-59.40025,
+-1.9146
+],
+[
+-59.39609,
+-1.91534
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-59.3968,-1.9152",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.0059,
+-8.3031
+],
+[
+-55.00307,
+-8.30505
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.0044,-8.3040",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.8214,
+-10.06906
+],
+[
+-55.82292,
+-10.07779
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.8219,-10.0714",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-59.1537,
+-9.76425
+],
+[
+-59.15582,
+-9.76993
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-59.1551,-9.7676",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-48.06222,
+-0.87063
+],
+[
+-48.06539,
+-0.87212
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-48.0639,-0.8714",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-62.88432,
+-9.392
+],
+[
+-62.881,
+-9.39258
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-62.8777,-9.3903",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.60146,
+-7.66058
+],
+[
+-56.60145,
+-7.66492
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.6015,-7.6628",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.43721,
+-6.80595
+],
+[
+-56.44219,
+-6.80729
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-56.4396,-6.8066",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-58.18526,
+-2.73771
+],
+[
+-58.18216,
+-2.73916
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-58.1837,-2.7384",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.72578,
+-10.00151
+],
+[
+-55.72061,
+-10.00507
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.7228,-10.0036",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-51.08627,
+-5.69833
+],
+[
+-51.09248,
+-5.69887
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-51.0868,-5.7001",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.16421,
+-7.9817
+],
+[
+-55.16419,
+-7.98694
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.1641,-7.9870",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.36584,
+-6.51894
+],
+[
+-56.36464,
+-6.5234
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.3652,-6.5211",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.37327,
+-9.36795
+],
+[
+-57.37207,
+-9.37241
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-57.3727,-9.3701",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-52.18916,
+-6.10607
+],
+[
+-52.18583,
+-6.10841
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-52.1876,-6.1072",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.45289,
+-7.67472
+],
+[
+-55.45637,
+-7.67534
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.4530,-7.6743",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.6525,
+-10.09251
+],
+[
+-55.65152,
+-10.09785
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.6531,-10.0912",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-48.06835,
+-0.8977
+],
+[
+-48.07345,
+-0.89815
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-48.0716,-0.8981",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.93317,
+-7.36776
+],
+[
+-55.93658,
+-7.36868
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.9355,-7.3684",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.24985,
+-10.80188
+],
+[
+-55.24376,
+-10.80605
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.2486,-10.8027",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-56.861,
+-5.66727
+],
+[
+-56.85845,
+-5.67276
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-56.8581,-5.6749",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.9714,
+-6.32284
+],
+[
+-55.96994,
+-6.32595
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-55.9710,-6.3239",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-61.33766,
+-8.3829
+],
+[
+-61.33805,
+-8.38758
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-61.3379,-8.3852",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-58.39919,
+-9.153
+],
+[
+-58.39523,
+-9.15633
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-58.3974,-9.1546",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-57.19948,
+-5.74723
+],
+[
+-57.19642,
+-5.75255
+]
+],
+"label": 0,
+"kind": "garimpo",
+"id": "lab_-57.1978,-5.7501",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-54.7139,
+-10.46376
+],
+[
+-54.71387,
+-10.46773
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-54.7139,-10.4657",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-46.48419,
+-1.91133
+],
+[
+-46.47461,
+-1.92284
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-46.4790,-1.9173",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-55.88698,
+-10.10848
+],
+[
+-55.88256,
+-10.11213
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-55.8849,-10.1082",
+"fonte": "detector, conferido na imagem 2026-11-23"
+},
+{
+"ends": [
+[
+-63.31774,
+-10.08751
+],
+[
+-63.31481,
+-10.08995
+]
+],
+"label": 0,
+"kind": "estrada_detector",
+"id": "lab_-63.3164,-10.0887",
+"fonte": "detector, conferido na imagem 2026-11-23"
+}
+]
+}
