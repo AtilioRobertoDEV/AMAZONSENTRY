@@ -25,10 +25,13 @@ import math
 import re
 import shutil
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 import numpy as np
 import rasterio
+from rasterio.enums import Resampling
 from rasterio.windows import Window
 
 import common as C
@@ -37,9 +40,19 @@ BUCKET = "https://storage.googleapis.com/earthenginepartners-hansen"
 LIST_API = "https://storage.googleapis.com/storage/v1/b/earthenginepartners-hansen/o"
 
 GSW = "https://storage.googleapis.com/global-surface-water/downloads2021/occurrence"
-MASK_VERSION = "jrc-gsw-2021-b3s10"  # muda isto para forçar reprocessamento
+MASK_VERSION = "jrc-gsw-2021-b3s10-hand8d5"  # muda isto para forçar reprocessamento
 WATER_BUFFER_PX = 3   # ~90 m em volta de qualquer água já vista: sempre removido
 WATER_SOFT_PX = 10    # ~300 m (várzea): só fica alerta confirmado
+
+# Planície de inundação (várzea e igapó): a floresta alagada some e reaparece na
+# imagem com a cheia e a vazante e vira falso alerta. Aqui é o que fica a até
+# FP_DIST_KM de um rio largo e a até FP_HAND_M de altura acima da drenagem
+# (HAND do Copernicus GLO-30, ASF/AWS Open Data). Medido em 2026: tira 60-70% dos
+# alertas no Rio Negro e no Solimões e menos de 1% no arco do desmatamento.
+HAND = "https://glo-30-hand.s3.amazonaws.com/v1/2021"
+FP_FACTOR = 8         # máscara em 0,002 grau (~220 m)
+FP_DIST_KM = 5
+FP_HAND_M = 8
 
 RECENT_DAYS = 35
 RECENT_CELL = 0.02
@@ -123,6 +136,8 @@ def water_mask(occ: np.ndarray, b: int = WATER_BUFFER_PX) -> np.ndarray:
 
 def glad_valid(a: dict) -> np.ndarray:
     ok = (a["a"] >= 2) & (a["d"] > 0)
+    if "fp" in a:
+        ok &= ~a["fp"]
     if "w" not in a or not ok.any():
         return ok
     water = (a["w"] > 0) & (a["w"] <= 100)
@@ -131,7 +146,75 @@ def glad_valid(a: dict) -> np.ndarray:
     return ok & ~near & ((a["a"] == 3) | ~varzea)
 
 
-def raster_cells(paths: dict, cell: float, value_fn, time_fn):
+_fp_lock = threading.Lock()
+_fp_mem: dict = {}
+
+
+def floodplain(left: int, top: int, water_path) -> np.ndarray | None:
+    """Máscara (5000 x 5000) da planície de inundação do tile 10x10 (canto sup. esquerdo)."""
+    key = (left, top)
+    with _fp_lock:
+        if key in _fp_mem:
+            return _fp_mem[key]
+        n = 40000 // FP_FACTOR
+        cache = C.DATA_DIR / "_cache" / "floodplain" / f"{MASK_VERSION}_{left}_{top}.npz"
+        if cache.exists():
+            m = np.unpackbits(np.load(cache)["m"])[: n * n].reshape(n, n).astype(bool)
+        else:
+            m = _build_floodplain(left, top, water_path, n)
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            np.savez_compressed(cache, m=np.packbits(m))
+        _fp_mem[key] = m
+        print(f"  várzea {left},{top}: {100 * m.mean():.1f}% do tile")
+        return m
+
+
+def _build_floodplain(left, top, water_path, n):
+    from scipy import ndimage as ndi
+    f = FP_FACTOR
+    frac = np.zeros((n, n), dtype=np.float32)
+    if water_path:
+        with rasterio.open(water_path) as src:
+            for r0 in range(0, 40000, STRIP):
+                a = src.read(1, window=Window(0, r0, 40000, STRIP))
+                ever = ((a > 0) & (a <= 100)).astype(np.float32)
+                frac[r0 // f:(r0 + STRIP) // f] = ever.reshape(STRIP // f, f, n, f).mean((1, 3))
+    wide = ndi.binary_opening(frac >= 0.5, iterations=1)  # canais com mais de ~500 m
+    if not wide.any():
+        return np.zeros((n, n), dtype=bool)
+    km = 10 / n * 111.0
+    near = ndi.distance_transform_edt(~wide) * km <= FP_DIST_KM
+    hand = np.full((n, n), 999, dtype=np.float32)
+    per = n // 10
+    env = rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif")
+    with env:
+        for i in range(10):          # linhas de 1 grau, de cima para baixo
+            for j in range(10):
+                blk = (slice(i * per, (i + 1) * per), slice(j * per, (j + 1) * per))
+                if not near[blk].any():
+                    continue
+                la, lo = top - i - 1, left + j
+                name = (f"Copernicus_DSM_COG_10_{'S' if la < 0 else 'N'}{abs(la):02d}_00_"
+                        f"{'W' if lo < 0 else 'E'}{abs(lo):03d}_00_HAND.tif")
+                for attempt in range(3):
+                    try:
+                        with rasterio.open(f"/vsicurl/{HAND}/{name}") as h:
+                            hand[blk] = h.read(1, out_shape=(per, per), resampling=Resampling.average)
+                        break
+                    except rasterio.errors.RasterioIOError as e:
+                        if "404" in str(e) or "does not exist" in str(e) or attempt == 2:
+                            break
+                        time.sleep(3 * (attempt + 1))
+    return near & (hand <= FP_HAND_M)
+
+
+def fp_strip(fp, r0: int, nrows: int) -> np.ndarray:
+    f = FP_FACTOR
+    s = fp[r0 // f:(r0 + nrows + f - 1) // f]
+    return np.repeat(np.repeat(s, f, 0), f, 1)[:nrows]
+
+
+def raster_cells(paths: dict, cell: float, value_fn, time_fn, extra=None):
     """Varre um tile em faixas e devolve linhas (x, y, t, área_ha) agregadas.
 
     value_fn(arrays) -> máscara booleana dos pixels de interesse
@@ -149,6 +232,8 @@ def raster_cells(paths: dict, cell: float, value_fn, time_fn):
             nrows = min(STRIP, h - r0)
             win = Window(0, r0, w, nrows)
             arrs = {k: s.read(1, window=win) for k, s in srcs.items()}
+            if extra is not None:
+                arrs.update(extra(r0, nrows))
             mask = value_fn(arrs)
             if not mask.any():
                 continue
@@ -170,7 +255,7 @@ def raster_cells(paths: dict, cell: float, value_fn, time_fn):
     return C.aggregate_xyt(allr[:, 0], allr[:, 1], allr[:, 2], allr[:, 3])
 
 
-def gfc_blocks(paths: dict, cell: float, threshold: int):
+def gfc_blocks(paths: dict, cell: float, threshold: int, fp=None):
     """Como raster_cells, mas para o GFC (todos os pixels de floresta), por blocos.
 
     Os tiles de 10 graus caem exatamente na grade, então cada célula é um bloco
@@ -197,6 +282,8 @@ def gfc_blocks(paths: dict, cell: float, threshold: int):
             ok = a["t"] >= threshold
             if "w" in a:
                 ok &= ~water_mask(a["w"])
+            if fp is not None:
+                ok &= ~fp_strip(fp, r0, nrows)
             if not ok.any():
                 continue
             code = np.where(ok, a["l"].astype(np.int32) + 1, 0)  # 0 = fora; 1 = de pé; k+1 = perda em 2000+k
@@ -258,7 +345,9 @@ def process_glad_tile(year: int, tile: str, tmp: Path):
     pd = C.download(f"{base}/alertDate{yy:02d}_{tile}.tif", tmp / f"d{yy}_{tile}.tif")
     jan1 = C.day_number(dt.date(year, 1, 1))
     m = re.match(r"(\d{3}[EW])_(\d\d[NS])_(\d{3}[EW])_(\d\d[NS])", tile)
-    wt = water_tile(int(_lonlat(m[1])), int(_lonlat(m[4])), tmp)
+    left, top = int(_lonlat(m[1])), int(_lonlat(m[4]))
+    wt = water_tile(left, top, tmp)
+    fp = floodplain(left, top, wt)
     paths = {"a": pa, "d": pd}
     if wt:
         paths["w"] = wt
@@ -268,6 +357,7 @@ def process_glad_tile(year: int, tile: str, tmp: Path):
             RECENT_CELL,
             glad_valid,
             lambda a, idx: a["d"][idx].astype(np.int64) - 1 + jan1,
+            extra=lambda r0, n: {"fp": fp_strip(fp, r0, n)},
         )
     finally:
         pa.unlink(missing_ok=True)
@@ -382,12 +472,14 @@ def process_gfc_tile(version: str, tile: str, tmp: Path, threshold: int):
         return np.zeros((0, 4))
     pt = C.download(f"{base}_treecover2000_{tile}.tif", tmp / f"tc_{tile}.tif")
     lat_s, lon_s = tile.split("_")
-    wt = water_tile(int(_lonlat(lon_s)), int(_lonlat(lat_s)), tmp)
+    left, top = int(_lonlat(lon_s)), int(_lonlat(lat_s))
+    wt = water_tile(left, top, tmp)
+    fp = floodplain(left, top, wt)
     paths = {"l": pl, "t": pt}
     if wt:
         paths["w"] = wt
     try:
-        rows = gfc_blocks(paths, LOSS_CELL, threshold)
+        rows = gfc_blocks(paths, LOSS_CELL, threshold, fp)
     finally:
         pl.unlink(missing_ok=True)
         pt.unlink(missing_ok=True)
