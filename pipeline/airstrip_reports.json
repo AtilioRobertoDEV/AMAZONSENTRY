@@ -1,4 +1,23 @@
 {
   "about": "Pistas apontadas por quem usa o site: coordenadas copiadas do popup (lat, lon). Cada uma passa pela conferência no Sentinel-2.",
-  "items": []
+  "items": [
+    {
+      "lat": -7.85689,
+      "lon": -56.71614,
+      "nome": "",
+      "em": "2026-11-23"
+    },
+    {
+      "lat": -7.63086,
+      "lon": -56.74484,
+      "nome": "",
+      "em": "2026-11-23"
+    },
+    {
+      "lat": -7.59428,
+      "lon": -56.69865,
+      "nome": "",
+      "em": "2026-11-23"
+    }
+  ]
 }
