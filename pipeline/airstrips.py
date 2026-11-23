@@ -801,7 +801,8 @@ def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
         store = {"version": RESULTS_VERSION, "items": {}}
     items = store["items"]
     stale_before = (dt.date.today() - dt.timedelta(days=45)).isoformat()
-    todo = [c for c in sites if key_of(c) not in items]
+    fo = in_forest([c["lon"] for c in sites], [c["lat"] for c in sites])
+    todo = [c for c, f in sorted(zip(sites, fo), key=lambda t: not t[1]) if key_of(c) not in items]   # floresta primeiro
     todo += sorted((c for c in sites if key_of(c) in items and items[key_of(c)].get("checked", "") < stale_before),
                    key=lambda c: items[key_of(c)].get("checked", ""))
     if limit:
@@ -926,6 +927,56 @@ out geom;"""
     return {"checked": dt.date.today().isoformat(), "source": "osm", "features": feats} if feats else None
 
 
+# Ecorregiões RESOLVE 2017 (CC-BY 4.0): separa a floresta amazônica do Cerrado, Pantanal e da faixa de transição
+# do Mato Grosso, onde quase toda pista sem registro é de fazenda.
+ECOREGIONS = "https://storage.googleapis.com/teow2016/Ecoregions2017.zip"
+FOREST_BIOMES = {1, 14}   # florestas úmidas tropicais e mangues
+NOT_AMAZON = {481, 439, 443, 485, 444, 457, 477, 493, 504}   # transição do MT, Mata Atlântica e Andes
+NEAR_MINING_KM = 20
+
+
+def amazon_forest():
+    """Polígono simplificado da floresta amazônica, guardado em cache (o zip original tem 150 MB)."""
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+    cache = CACHE / "bioma.json"
+    if cache.exists():
+        doc = C.read_json(cache)
+        return shape(doc["geometry"]) if doc else None
+    try:
+        import shapefile
+        import requests
+        r = requests.get(ECOREGIONS, timeout=900, headers=C.UA)
+        r.raise_for_status()
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        part = {e: io.BytesIO(z.read(n)) for n in z.namelist() for e in ("shp", "shx", "dbf") if n.lower().endswith("." + e)}
+        sf = shapefile.Reader(shp=part["shp"], shx=part["shx"], dbf=part["dbf"], encoding="latin1")
+        keep = []
+        for i, rec in enumerate(sf.iterRecords(fields=["ECO_ID", "BIOME_NUM"])):
+            if int(rec["BIOME_NUM"]) not in FOREST_BIOMES or int(rec["ECO_ID"]) in NOT_AMAZON:
+                continue
+            shp = sf.shape(i)
+            b = shp.bbox
+            if b[2] < BBOX[0] or b[0] > BBOX[2] or b[3] < BBOX[1] or b[1] > BBOX[3]:
+                continue
+            keep.append(shape(shp.__geo_interface__).buffer(0))
+        g = unary_union(keep).simplify(0.01, preserve_topology=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! ecorregiões: {e}")
+        return None
+    C.write_json(cache, {"source": "RESOLVE Ecoregions 2017", "checked": dt.date.today().isoformat(),
+                         "geometry": g.__geo_interface__})
+    return g
+
+
+def in_forest(lons, lats):
+    import shapely
+    g = amazon_forest()
+    if g is None:
+        return np.ones(len(lons), bool)
+    return shapely.contains_xy(g, np.asarray(lons), np.asarray(lats))
+
+
 def ti_names(lons, lats, lands):
     if not lands:
         return [""] * len(lons)
@@ -990,8 +1041,11 @@ def write_output(sites, items, this_year):
     dist = nearest_km(lon, lat, mp)
     lands = indigenous_lands()
     tis = ti_names(lon, lat, lands)
+    forest = in_forest(lon, lat)
     data = []
-    for (c, r), x, y, km, ti in zip(rows, lon, lat, dist, tis):
+    for (c, r), x, y, km, ti, fo in zip(rows, lon, lat, dist, tis, forest):
+        # 1 perto de garimpo ou em terra indígena, 2 floresta amazônica, 3 Cerrado/Pantanal/transição (fazendas)
+        prio = 1 if ti or (km is not None and km <= NEAR_MINING_KM) else 2 if fo else 3
         ser = r.get("series", {})
         yrs = range(S2.FIRST_YEAR, this_year + 1)
         # 0-9 = fração da pista aberta naquele ano; "-" = imagem ruim, ano ignorado
@@ -1003,7 +1057,7 @@ def write_output(sites, items, this_year):
             round(x, 5), round(y, 5),
             r["ends"][0][0], r["ends"][0][1], r["ends"][1][0], r["ends"][1][1],
             r["length"], born[0], born[1], STATUS[r["status"]], r.get("last"), r.get("closed_since"),
-            km, src, s, (c["names"][0] if c.get("names") else "")[:60], CATS[c.get("cat")], ti,
+            km, src, s, (c["names"][0] if c.get("names") else "")[:60], CATS[c.get("cat")], ti, prio,
         ])
     by_year = {}
     for row in data:
@@ -1013,25 +1067,30 @@ def write_output(sites, items, this_year):
     reg = registered_rows()
     cats["registrada"] = len(reg)
     cats["em terra indígena"] = sum(1 for row in data if row[17] and row[16] == 0)
+    prios = {k: sum(1 for row in data if row[18] == v and row[16] == 0)
+             for k, v in (("perto de garimpo ou em TI", 1), ("floresta", 2), ("fora da floresta", 3))}
     C.write_json(OUT / "airstrips.json", {
         "v": 1,
         "layer": "airstrips",
         "kind": "pistas de pouso sem registro encontrado (suspeitas), conferidas no Sentinel-2",
         "source": "OpenStreetMap (ODbL), OurAirports (domínio público), MapBiomas; imagens Copernicus Sentinel-2 L2A; "
-                  "perda de floresta Hansen/UMD; garimpo Amazon Mining Watch; cadastro de aeródromos ANAC; terras indígenas FUNAI ou OpenStreetMap",
+                  "perda de floresta Hansen/UMD; garimpo Amazon Mining Watch; cadastro de aeródromos ANAC; terras indígenas FUNAI ou OpenStreetMap; "
+                  "ecorregiões RESOLVE 2017",
         "first_year": S2.FIRST_YEAR,
         "fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "comprimento_m", "surgiu_depois_de", "surgiu_ate",
                    "situacao(1 ativa,2 perdendo uso,3 abandonada,4 reaberta)", "ultimo_ano_visto", "fechada_desde",
                    "garimpo_km", "fontes(1 osm,2 ourairports,4 mapbiomas,8 detector)", "aberta_por_ano", "nome",
-                   "categoria(0 sem registro,1 aldeia,2 cidade ou vila)", "terra_indigena"],
+                   "categoria(0 sem registro,1 aldeia,2 cidade ou vila)", "terra_indigena",
+                   f"prioridade(1 garimpo a {NEAR_MINING_KM} km ou TI,2 floresta amazônica,3 Cerrado/Pantanal/transição)"],
         "reg_fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "publico", "nome", "codigo", "municipio_uf"],
         "counts": counts,
         "cats": cats,
+        "prios": prios,
         "updated": C.now_iso(),
         "data": data,
         "reg": reg,
     })
-    C.update_manifest("airstrips", {"count": cats["sem registro"], "updated": C.now_iso(), "counts": counts,
+    C.update_manifest("airstrips", {"count": prios["perto de garimpo ou em TI"] + prios["floresta"], "updated": C.now_iso(), "counts": counts,
                                     "cats": cats,
                                     "years": sorted(by_year)})
     C.update_stats("airstrips", "novas_por_ano", by_year)

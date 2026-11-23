@@ -15,7 +15,8 @@ const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', airstrips: '#ff5fa2
   aldeia: '#c4a3ff', cidade: '#8cc3ea', anac: '#e9e1d0' };
 // tipos de pista: 0 sem registro (suspeita), 1 aldeia, 2 cidade ou vila (as três conferidas no Sentinel-2) e as registradas na ANAC
 const AIR_TYPES = [['0', 'Sem registro', 'suspeitas: não achamos registro na ANAC'], ['1', 'Aldeia', 'pista de aldeia ou missão, de uso comunitário'],
-  ['2', 'Cidade ou vila', 'pista pública de cidade ou vila que falta na lista da ANAC'], ['reg', 'Registrada na ANAC', 'aeródromo público ou privado cadastrado']];
+  ['2', 'Cidade ou vila', 'pista pública de cidade ou vila que falta na lista da ANAC'], ['reg', 'Registrada na ANAC', 'aeródromo público ou privado cadastrado'],
+  ['fora', 'Fora da floresta', 'Cerrado, Pantanal e a transição do Mato Grosso, longe de garimpo e de terra indígena: quase sempre pista de fazenda']];
 const INK = { deforestation: '#8a5d00', mining: '#0c6f64', airstrips: '#a3195b' };   // mesmas cores, legíveis no painel
 const AIR_STATUS = { 1: 'ativa', 2: 'perdendo uso', 3: 'abandonada', 4: 'reaberta' };
 const AIR_KEY = [[1, 'Em uso', 'pista limpa no último ano com imagem boa'], [4, 'Reaberta', 'voltou a ser limpa depois de fechar'],
@@ -354,7 +355,7 @@ function periodLabel(p) {
 // ------------------------------------------------------------------ pistas de pouso sem registro
 // Cada linha: lon, lat, lon1, lat1, lon2, lat2, comprimento, surgiu depois de, surgiu até, situação,
 // último ano visto, fechada desde, km até garimpo, fontes, aberta por ano ("0"-"9" ou "-"), nome.
-const A = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, LEN: 6, B0: 7, B1: 8, ST: 9, LAST: 10, SHUT: 11, KM: 12, SRC: 13, SER: 14, NAME: 15, CAT: 16, TI: 17 };
+const A = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, LEN: 6, B0: 7, B1: 8, ST: 9, LAST: 10, SHUT: 11, KM: 12, SRC: 13, SER: 14, NAME: 15, CAT: 16, TI: 17, PRIO: 18 };
 // registradas na ANAC: lon, lat, cabeceiras do OSM (ou null), pública, nome, código, município/UF
 const R = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, PUB: 6, NAME: 7, CODE: 8, PLACE: 9 };
 
@@ -396,24 +397,29 @@ async function airData() {
   const list = [];
   const by = { 1: 0, 2: 0, 3: 0, 4: 0 };
   const types = state.airTypes, cats = { 0: 0, 1: 0, 2: 0 };
-  let used0 = 0;
+  let used0 = 0, fora = 0;
+  // prioridade: 1 perto de garimpo ou em terra indígena, 2 floresta amazônica, 3 fora da floresta (fazendas)
+  const far = (r) => r[A.PRIO] === 3 && !types.has('fora');
   doc.data.forEach((r, i) => {
     const st = state.mode === 'history' ? airAt(r, y, first) : r[A.ST];
     if (!st) return;
     const cat = r[A.CAT] || 0;
+    if (r[A.PRIO] === 3 && types.has(String(cat))) fora += 1;
+    if (far(r)) return;
     cats[cat] += 1;
     if (cat === 0 && (st === 1 || st === 4)) used0 += 1;
     if (!types.has(String(cat))) return;
-    list.push({ i, st, cat });
+    list.push({ i, st, cat, prio: r[A.PRIO] || 2 });
     by[st] += 1;
   });
+  list.sort((a, b) => b.prio - a.prio);   // as de garimpo e terra indígena por cima
   const total = cats[0];
   const reg = state.mode === 'history' || !types.has('reg') ? [] : (doc.reg || []);
-  const born = state.mode === 'history' ? doc.data.filter((r) => r[A.B1] === y && !r[A.CAT]).length : 0;
+  const born = state.mode === 'history' ? doc.data.filter((r) => r[A.B1] === y && !r[A.CAT] && !far(r)).length : 0;
   const note = state.mode === 'history'
     ? (y < first ? `antes de ${first}, só as datadas pela perda de floresta` : `situação em ${y}${born ? `; ${born} surgiram até ${y}` : ''}`)
     : `${used0} em uso no último ano com imagem boa`;
-  return { total, list, by, note, cats, reg, used0, regTotal: (doc.reg || []).length };
+  return { total, list, by, note, cats, reg, used0, fora, regTotal: (doc.reg || []).length };
 }
 
 function airFeatures(r) {
@@ -454,16 +460,25 @@ function drawAirKey() {
   ul.innerHTML = AIR_KEY.map(([st, name, why]) => `<li data-st="${st}" title="${esc(why)}"><i aria-hidden="true"></i>${name}<b>${fmtInt(r.by[st] || 0)}</b></li>`).join('');
   const hist = state.mode === 'history';
   box.innerHTML = AIR_TYPES.map(([k, name, why]) => {
-    const n = k === 'reg' ? r.regTotal : r.cats[k];
+    const n = k === 'reg' ? r.regTotal : k === 'fora' ? r.fora : r.cats[k];
     const off = k === 'reg' && hist;
     return `<button type="button" data-type="${k}" aria-pressed="${state.airTypes.has(k) && !off}" title="${esc(off ? 'sem data: só aparece fora do histórico' : why)}"${off ? ' disabled' : ''}>
       <i aria-hidden="true"></i>${name}<b>${fmtInt(n || 0)}</b></button>`;
   }).join('');
 }
 
+function showAir(air) {
+  state.results.airstrips = air;
+  drawAir();
+  drawAirKey();
+  const ab = $('.layer[data-layer="airstrips"]');
+  $('[data-total]', ab).innerHTML = air.total ? `${fmtInt(air.total)}<small>pistas</small>` : '–';
+  $('[data-note]', ab).textContent = air.note || '';
+}
+
 function toggleAirType(k) {
   if (state.airTypes.has(k)) state.airTypes.delete(k); else state.airTypes.add(k);
-  airData().then((air) => { state.results.airstrips = air; drawAir(); drawAirKey(); writeLede(); syncURL(); });
+  airData().then((air) => { showAir(air); writeLede(); syncURL(); });
 }
 
 // barra de anos do popup: quanto da pista estava limpa em cada ano; risco = imagem ruim, ano ignorado
@@ -509,6 +524,7 @@ function airPopup(i, ll) {
     ${airYears(r, first)}
     ${ti ? `<p>Dentro da Terra Indígena <b>${esc(ti)}</b>.</p>` : ''}
     ${km != null ? `<p>${km < 1 ? 'Colada a um garimpo' : `Garimpo mais perto a ${nf.format(km)} km`}.</p>` : ''}
+    ${r[A.PRIO] === 3 ? '<p>Fora da floresta amazônica e longe de garimpo: muitas pistas assim servem a fazendas.</p>' : ''}
     <p class="fine">${kind} Fonte da indicação: ${esc(srcs)}. Medida no Sentinel-2.</p>
     <button class="tl-open" data-kind="airstrip" data-lng="${r[A.LON]}" data-lat="${r[A.LAT]}">Ver a evolução por satélite</button>`;
   new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(ll).setHTML(html).addTo(map);
@@ -567,12 +583,7 @@ async function render() {
   clearRadar();
   const [results, air] = await Promise.all([Promise.all(LAYERS.map((l) => LOADERS[l]())), airData()]);
   if (seq !== state.renderSeq) return;
-  state.results.airstrips = air;
-  drawAir();
-  drawAirKey();
-  const ab = $('.layer[data-layer="airstrips"]');
-  $('[data-total]', ab).innerHTML = air.total ? `${fmtInt(air.total)}<small>pistas</small>` : '–';
-  $('[data-note]', ab).textContent = air.note || '';
+  showAir(air);
   LAYERS.forEach((l, i) => {
     const r = results[i];
     if (r.cells && r.total == null) r.total = r.cells.total;

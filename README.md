@@ -96,6 +96,9 @@ As pistas de aldeia e de cidade ou vila (pelo nome ou município) ficam em tipos
 na lista da ANAC, mas são de uso público. Os aeródromos registrados na ANAC também podem ser ligados no mapa,
 com o traçado do OSM quando existe. Quando a pista está desenhada no OSM (ou tem cabeceiras no OurAirports),
 o eixo é esse traçado, com um ajuste fino na imagem; água (MNDWI) não conta como pista. O popup diz se a
-pista está dentro de terra indígena (polígonos da FUNAI ou do OpenStreetMap, guardados em cache). O detector também varre a imagem em volta dos garimpos atrás de
+pista está dentro de terra indígena (polígonos da FUNAI ou do OpenStreetMap, guardados em cache).
+Prioridade: as pistas a até 20 km de garimpo ou dentro de terra indígena vêm primeiro, depois as da floresta
+amazônica. As do Cerrado, do Pantanal e da transição do Mato Grosso ([ecorregiões RESOLVE 2017](https://ecoregions.appspot.com/),
+CC-BY 4.0), quase sempre de fazenda, ficam escondidas no tipo "Fora da floresta". O detector também varre a imagem em volta dos garimpos atrás de
 pistas que ninguém mapeou. Por enquanto o que só ele acha não vai para o mapa: na conferência por amostra,
 a maior parte era estrada, rio ou canal de garimpo (`SHOW_DETECTOR` em `airstrips.py`).

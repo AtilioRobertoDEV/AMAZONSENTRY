@@ -428,6 +428,8 @@ body.tl-on #timeline { display: none; }
 #air-types [data-type="1"] i { background: var(--aldeia); }
 #air-types [data-type="2"] i { background: var(--cidade); }
 #air-types [data-type="reg"] i { height: 2px; background: var(--tinta); }
+#air-types [data-type="fora"] { grid-column: 1 / -1; }
+#air-types [data-type="fora"] i { background: repeating-linear-gradient(90deg, var(--pista) 0 3px, transparent 3px 5px); }
 #air-types button[aria-pressed="true"] { border-color: var(--tinta); color: var(--tinta); background: rgba(42, 30, 18, .07); }
 #air-types button[aria-pressed="false"] i { opacity: .35; }
 #air-types button:hover { background: rgba(42, 30, 18, .1); }
