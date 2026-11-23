@@ -602,6 +602,10 @@ def analyze(c, years):
 # dos garimpos (janelas de 2 km em cada quadro de ~2 km com garimpo). O que ele
 # acha entra como candidata e passa pela mesma checagem ano a ano.
 SCAN_G = 0.018
+# Pistas achadas só pelo detector ainda não vão para o mapa: na conferência por amostra
+# (nov/2026) só 1 em cada 4 era pista; o resto era estrada, rio ou canal de garimpo.
+# Ficam no cache para treinar um classificador com as pistas do OSM como exemplo.
+SHOW_DETECTOR = False
 SCAN_SCORE = 0.3
 
 
@@ -790,6 +794,8 @@ def write_output(sites, items, this_year):
     for c in sites:
         r = items.get(key_of(c))
         if not r:
+            continue
+        if c["srcs"] == ["detector"] and not SHOW_DETECTOR:
             continue
         st = r.get("status", "sem confirmação")
         counts[st] = counts.get(st, 0) + 1

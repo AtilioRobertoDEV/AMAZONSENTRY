@@ -91,3 +91,8 @@ da pista está limpa, na cena menos nublada de cada ano. Anos com imagem ruim (n
 ou névoa que deixa a vegetação bem mais apagada que nos outros anos) são ignorados. Daí saem a janela em
 que a pista surgiu, a situação no último ano (em uso, perdendo uso, abandonada, reaberta) e a distância até
 o garimpo mais próximo. "Sem registro" quer dizer que não achamos registro, não que a pista seja ilegal.
+
+Ficam de fora as pistas de cidade, vila ou aldeia (pelo nome, município ou código IATA): muitas não estão
+na lista da ANAC, mas são de uso público. O detector também varre a imagem em volta dos garimpos atrás de
+pistas que ninguém mapeou. Por enquanto o que só ele acha não vai para o mapa: na conferência por amostra,
+a maior parte era estrada, rio ou canal de garimpo (`SHOW_DETECTOR` em `airstrips.py`).
