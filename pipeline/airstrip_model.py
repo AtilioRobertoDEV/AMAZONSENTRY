@@ -42,7 +42,8 @@ MODEL = Path(__file__).parent / "airstrip_model.json"
 BANDS = ("B02", "B03", "B04", "B08", "B11", "B12")
 ROADS = "trunk|primary|secondary|tertiary|unclassified|residential|track|service"
 WATERS = "river|canal|stream|ditch|drain"
-FEAT_V = 1   # suba quando mudar o jeito de medir (FEATURES ou measure)
+SKIP = {"len_m"}   # medidas que não entram no modelo (ver train)
+FEAT_V = 3   # suba quando mudar o jeito de medir (FEATURES ou measure)
 PAVED = {"asphalt", "paved", "concrete", "paving_stones", "sett", "chipseal"}
 
 
@@ -218,7 +219,10 @@ FEATURES = ["len_m", "width_k", "con_med", "con_iqr", "open_frac", "ext_lo", "ex
             "br0_open", "br0_sect", "br1_open", "br1_sect",
             *[f"{b}_axis" for b in BANDS], *[f"{b}_dif" for b in BANDS],
             "ndvi_axis", "ndvi_side", "nbr_axis", "ndbi_axis", "mndwi_axis", "bright_axis",
-            "win_open", "win_ndvi_p10", "win_ndvi_p90", "lines_par"]
+            "win_open", "win_ndvi_p10", "win_ndvi_p90", "lines_par",
+            "w_ndvi_m", "w_swir_m", "w_cv", "edge_sharp", "ext_narrow", "ext_narrow_max", "ax_ndvi_cv",
+            "cont_red_min", "cont_red_max", "cont_swir_min", "cont_swir_max", "cont_ndvi_min", "cont_ndvi_max",
+            "cont_far_ndvi_min", "cont_far_ndvi_max"]
 
 
 def measure(bands, v, th, y, a, b, k):
@@ -258,6 +262,66 @@ def measure(bands, v, th, y, a, b, k):
     rows = np.median(allc, axis=1)
     rows[max(0, y - 6):y + 7] = -1
     f["lines_par"] = int((rows > 0.5 * max(f["con_med"], 0.05)).sum())
+    # largura de verdade: perfil transversal (perpendicular ao eixo), mediana ao longo da faixa.
+    # Pista tem 15-30 m de largura constante; estrada de terra, 5-10 m e varia.
+    def width(img, lo_side, sign=1):
+        prof_rows = img[y - 15:y + 16, a:b + 1] * sign
+        prof = np.median(prof_rows, axis=1)
+        side = np.median(np.r_[prof[:6], prof[-6:]])
+        mid = prof[15]
+        half = (side + mid) / 2
+        if side - mid <= 1e-6:
+            return 0.0, 0.0, 0.0
+        inside = prof < half
+        i0 = i1 = 15
+        while i0 > 0 and inside[i0 - 1]:
+            i0 -= 1
+        while i1 < 30 and inside[i1 + 1]:
+            i1 += 1
+        w_all = []
+        for col in range(0, prof_rows.shape[1], 5):   # largura em trechos, para ver se varia
+            c = prof_rows[:, col]
+            ins = c < half
+            j0 = j1 = 15
+            if not ins[15]:
+                w_all.append(0)
+                continue
+            while j0 > 0 and ins[j0 - 1]:
+                j0 -= 1
+            while j1 < 30 and ins[j1 + 1]:
+                j1 += 1
+            w_all.append(j1 - j0 + 1)
+        w_all = np.array(w_all, float)
+        sharp = float(np.max(np.abs(np.diff(prof))) / max(side - mid, 1e-6))
+        return (i1 - i0 + 1) * S2.PX, float(w_all.std() / max(w_all.mean(), 1e-6)), sharp
+    f["w_ndvi_m"], f["w_cv"], f["edge_sharp"] = width(m, None)
+    sw = S2._rot(bands["B11"].astype("f4"), th)
+    f["w_swir_m"] = width(-sw, None)[0]   # no SWIR o eixo é mais claro: inverte
+    # continua além das pontas com uma faixa estreita (1 px)? estrada continua, pista acaba
+    c0 = S2._contrast(m, *S2.SCALES[0])[y]
+    e1 = float(np.median(c0[max(0, a - 40):max(1, a - 5)])) if a - 5 > 5 else 0.0
+    e2 = float(np.median(c0[min(L - 1, b + 5):min(L, b + 40)])) if L - (b + 5) > 5 else 0.0
+    f["ext_narrow"], f["ext_narrow_max"] = min(e1, e2), max(e1, e2)
+    # a superfície continua depois das pontas? Estrada continua com a mesma cor (terra
+    # ou asfalto) pelas duas pontas; pista acaba no mato. Diferença (fora - dentro) ao
+    # longo da linha do eixo, logo depois de cada ponta (30-250 m) e mais longe (250-600 m).
+    rr = {"red": S2._rot(bands["B04"].astype("f4"), th) / 10000, "swir": sw / 10000, "ndvi": m}
+    for name, img in rr.items():
+        line = np.median(img[y - hw:y + hw + 1], axis=0)
+        inside = float(np.median(line[a:b + 1]))
+        d = []
+        for lo_, hi_ in ((a - 25, a - 3), (b + 3, b + 25)):
+            seg_ = line[max(0, lo_):max(0, min(L, hi_))]
+            d.append(abs(float(np.median(seg_)) - inside) if seg_.size >= 4 else 1.0)
+        f[f"cont_{name}_min"], f[f"cont_{name}_max"] = min(d), max(d)
+        if name == "ndvi":
+            far = []
+            for lo_, hi_ in ((a - 60, a - 25), (b + 25, b + 60)):
+                seg_ = line[max(0, lo_):max(0, min(L, hi_))]
+                far.append(abs(float(np.median(seg_)) - inside) if seg_.size >= 4 else 1.0)
+            f["cont_far_ndvi_min"], f["cont_far_ndvi_max"] = min(far), max(far)
+    axv = m[y, a:b + 1]
+    f["ax_ndvi_cv"] = float(np.std(axv) / max(abs(np.mean(axv)), 0.05))
     return [float(f[k_]) for k_ in FEATURES]
 
 
@@ -335,12 +399,15 @@ def train(path=None):
     from sklearn.model_selection import GroupKFold
     doc = C.read_json(path or CACHE / "train_features.json")
     rows = [r for r in doc["rows"].values() if r["x"] is not None]
-    X = np.array([r["x"] for r in rows])
+    # o comprimento fica de fora: os trechos de estrada cortados para treino tendem a ser
+    # mais curtos que as pistas, e o modelo aprenderia isso em vez da aparência
+    use = [i for i, f in enumerate(FEATURES) if f not in SKIP]
+    X = np.array([[r["x"][i] for i in use] for r in rows])
     y = np.array([r["label"] for r in rows])
     kinds = np.array([r["kind"] for r in rows])
     # validação por região (quadros de 1°) para não medir acerto com vizinhos do treino
     grp = np.array([int(np.floor((r["ends"][0][0]) / 1.0)) * 1000 + int(np.floor(r["ends"][0][1] / 1.0)) for r in rows])
-    params = dict(n_estimators=250, max_depth=3, learning_rate=0.06, subsample=0.8, random_state=0)
+    params = dict(n_estimators=500, max_depth=4, learning_rate=0.04, subsample=0.8, random_state=0)
     prob = np.zeros(len(y))
     for tr, te in GroupKFold(5).split(X, y, grp):
         m = GradientBoostingClassifier(**params).fit(X[tr], y[tr])
@@ -354,7 +421,7 @@ def train(path=None):
         report["by_kind"][kd] = {"n": int(sel.sum()), "chamadas_de_pista": round(float((prob[sel] >= 0.5).mean()), 3)}
     print(json.dumps(report, indent=1, ensure_ascii=False))
     m = GradientBoostingClassifier(**params).fit(X, y)
-    imp = sorted(zip(FEATURES, m.feature_importances_), key=lambda t: -t[1])[:12]
+    imp = sorted(zip([FEATURES[i] for i in use], m.feature_importances_), key=lambda t: -t[1])[:12]
     print("medidas mais usadas:", ", ".join(f"{n} {v:.2f}" for n, v in imp))
     trees = []
     for est in m.estimators_[:, 0]:
@@ -362,7 +429,7 @@ def train(path=None):
         trees.append([t.children_left.tolist(), t.children_right.tolist(), t.feature.tolist(),
                       [round(float(v), 6) for v in t.threshold], [round(float(v), 6) for v in t.value[:, 0, 0]]])
     init = float(np.log(y.mean() / (1 - y.mean())))
-    MODEL.write_text(json.dumps({"trained": dt.date.today().isoformat(), "features": FEATURES, "init": init,
+    MODEL.write_text(json.dumps({"trained": dt.date.today().isoformat(), "features": FEATURES, "init": init, "use": use,
                                  "lr": params["learning_rate"], "trees": trees, "report": report},
                                 separators=(",", ":")))
     print(f"modelo gravado em {MODEL}")
@@ -383,6 +450,7 @@ def predict(x):
         _model = json.loads(MODEL.read_text()) if MODEL.exists() else False
     if not _model or x is None:
         return None
+    x = [x[i] for i in _model.get("use", range(len(x)))]
     s = _model["init"]
     for left, right, feat, thr, val in _model["trees"]:
         i = 0

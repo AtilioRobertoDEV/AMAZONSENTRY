@@ -99,6 +99,15 @@ o eixo é esse traçado, com um ajuste fino na imagem; água (MNDWI) não conta 
 pista está dentro de terra indígena (polígonos da FUNAI ou do OpenStreetMap, guardados em cache).
 Prioridade: as pistas a até 20 km de garimpo ou dentro de terra indígena vêm primeiro, depois as da floresta
 amazônica. As do Cerrado, do Pantanal e da transição do Mato Grosso ([ecorregiões RESOLVE 2017](https://ecoregions.appspot.com/),
-CC-BY 4.0), quase sempre de fazenda, ficam escondidas no tipo "Fora da floresta". O detector também varre a imagem em volta dos garimpos atrás de
+CC-BY 4.0), quase sempre de fazenda, ficam escondidas no tipo "Fora da floresta".
+
+Modelo próprio (`pipeline/airstrip_model.py`): cada pista confirmada na imagem é medida em seis bandas do
+Sentinel-2 (cor da superfície, largura real, se a faixa continua depois das pontas, o que sai das cabeceiras,
+faixas paralelas em volta) e um conjunto de árvores dá a chance de ser pista. Treino: 1.876 pistas desenhadas
+no OSM contra 1.369 trechos retos de estradas de terra, asfalto, ruas e rios do OSM em volta delas
+(`.github/workflows/train-airstrips.yml` junta e mede os exemplos; `python airstrip_model.py train` grava
+`airstrip_model.json`). Na validação por região (quadros de 1°), 91% das pistas passam e só 10-13% dos rios,
+ruas e asfalto; estrada de terra ainda passa em ~45%. Pistas com chance abaixo de 30% saem do mapa. O detector
+segue desligado: o modelo ainda aprova estrada de terra larga e fileira de cavas de garimpo. O detector também varre a imagem em volta dos garimpos atrás de
 pistas que ninguém mapeou. Por enquanto o que só ele acha não vai para o mapa: na conferência por amostra,
 a maior parte era estrada, rio ou canal de garimpo (`SHOW_DETECTOR` em `airstrips.py`).

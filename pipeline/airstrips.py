@@ -585,7 +585,7 @@ def analyze(c, years):
         return res
     # achada só pelo detector: estrada, rio e canal de rejeito também são faixas retas.
     # Pista acaba no mato numa ponta e, na outra, dá num acesso só ou numa clareira.
-    if c.get("srcs") == ["detector"]:
+    if c.get("srcs") == ["detector"] and not (SHOW_DETECTOR and model_ready()):
         ends = sorted(S2.end_branches(imgs[yref][0], th, ry, a, b, side_ndvi - OPEN_T), key=lambda e: e[1])
         res["branches"] = [[round(f, 2), n] for f, n in ends]
         if ends[0][1] > 0 or not (ends[1][1] <= 1 or ends[1][0] >= 0.4):
@@ -658,10 +658,52 @@ def analyze(c, years):
 # dos garimpos (janelas de 2 km em cada quadro de ~2 km com garimpo). O que ele
 # acha entra como candidata e passa pela mesma checagem ano a ano.
 SCAN_G = 0.018
-# Pistas achadas só pelo detector ainda não vão para o mapa: na conferência por amostra
-# (nov/2026) só 1 em cada 4 era pista; o resto era estrada, rio ou canal de garimpo.
-# Ficam no cache para treinar um classificador com as pistas do OSM como exemplo.
+# Pistas achadas só pelo detector: na conferência por amostra (nov/2026) só 1 em cada 4
+# era pista; o resto era estrada, rio ou canal de garimpo. O modelo próprio
+# (airstrip_model.py) já tira bem rio, rua e asfalto, mas ainda aprova estrada de terra
+# larga e fileira de cavas de garimpo, que não estão nos exemplos de treino. Fica
+# desligado até o treino ganhar esses exemplos.
 SHOW_DETECTOR = False
+P_KEEP = 0.3       # chance mínima (modelo) para uma pista indicada por OSM/OurAirports/MapBiomas ficar no mapa
+P_DETECTOR = 0.8   # chance mínima para uma pista achada só pelo detector
+
+
+def model_ready():
+    import airstrip_model as AM
+    return AM.MODEL.exists()
+
+
+def pista_chance(r):
+    import airstrip_model as AM
+    p = AM.predict(r.get("x")) if r.get("x") and r.get("x_v") == AM.FEAT_V else None
+    return None if p is None else round(p, 2)
+
+
+def classify(sites, items, workers, budget_min):
+    """Medidas do modelo próprio para cada pista confirmada na imagem (a chance sai na hora de gravar)."""
+    import airstrip_model as AM
+    if not model_ready():
+        return
+    mid = AM.FEAT_V
+    todo = [(c, items[key_of(c)]) for c in sites if key_of(c) in items and items[key_of(c)].get("ends")
+            and items[key_of(c)].get("status") not in (None, "sem confirmação") and items[key_of(c)].get("x_v") != mid]
+    print(f"Modelo de pistas: {len(todo)} para medir")
+    deadline = time.time() + budget_min * 60
+    with ThreadPoolExecutor(workers) as ex:
+        futs = {ex.submit(AM.measure_example, {"ends": r["ends"]}): r for c, r in todo}
+        for f in as_completed(futs):
+            r = futs[f]
+            try:
+                m = f.result()
+            except Exception as e:  # noqa: BLE001
+                print(f"  ! modelo: {e}")
+                continue
+            r["x"] = [round(v, 4) for v in m[0]] if m else None
+            r["x_v"] = mid
+            if time.time() > deadline:
+                for g in futs:
+                    g.cancel()
+                break
 SCAN_SCORE = 0.3
 
 
@@ -802,6 +844,9 @@ def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
     items = store["items"]
     stale_before = (dt.date.today() - dt.timedelta(days=45)).isoformat()
     fo = in_forest([c["lon"] for c in sites], [c["lat"] for c in sites])
+    if SHOW_DETECTOR and model_ready():
+        for k_ in [k_ for k_, v_ in items.items() if v_.get("why") == "estrada ou rio"]:
+            items.pop(k_)
     todo = [c for c, f in sorted(zip(sites, fo), key=lambda t: not t[1]) if key_of(c) not in items]   # floresta primeiro
     todo += sorted((c for c in sites if key_of(c) in items and items[key_of(c)].get("checked", "") < stale_before),
                    key=lambda c: items[key_of(c)].get("checked", ""))
@@ -841,6 +886,8 @@ def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
                 break
     C.write_json(results_p, store)
     print(f"  conferidas nesta rodada: {done}; faltam {max(0, len(todo) - done)}")
+    classify(sites, items, workers, max(5.0, (deadline - time.time()) / 60 + 20))
+    C.write_json(results_p, store)
     write_output(sites, items, this_year)
 
 
@@ -1029,7 +1076,13 @@ def write_output(sites, items, this_year):
         r = items.get(key_of(c))
         if not r:
             continue
-        if c["srcs"] == ["detector"] and not SHOW_DETECTOR:
+        det = c["srcs"] == ["detector"]
+        if det and not SHOW_DETECTOR:
+            continue
+        p = pista_chance(r)
+        if det and (p is None or p < P_DETECTOR) or p is not None and p < P_KEEP:
+            if r.get("status") not in (None, "sem confirmação"):
+                counts["parece estrada ou rio"] = counts.get("parece estrada ou rio", 0) + 1
             continue
         st = r.get("status", "sem confirmação")
         counts[st] = counts.get(st, 0) + 1
@@ -1057,7 +1110,7 @@ def write_output(sites, items, this_year):
             round(x, 5), round(y, 5),
             r["ends"][0][0], r["ends"][0][1], r["ends"][1][0], r["ends"][1][1],
             r["length"], born[0], born[1], STATUS[r["status"]], r.get("last"), r.get("closed_since"),
-            km, src, s, (c["names"][0] if c.get("names") else "")[:60], CATS[c.get("cat")], ti, prio,
+            km, src, s, (c["names"][0] if c.get("names") else "")[:60], CATS[c.get("cat")], ti, prio, pista_chance(r),
         ])
     by_year = {}
     for row in data:
@@ -1081,7 +1134,8 @@ def write_output(sites, items, this_year):
                    "situacao(1 ativa,2 perdendo uso,3 abandonada,4 reaberta)", "ultimo_ano_visto", "fechada_desde",
                    "garimpo_km", "fontes(1 osm,2 ourairports,4 mapbiomas,8 detector)", "aberta_por_ano", "nome",
                    "categoria(0 sem registro,1 aldeia,2 cidade ou vila)", "terra_indigena",
-                   f"prioridade(1 garimpo a {NEAR_MINING_KM} km ou TI,2 floresta amazônica,3 Cerrado/Pantanal/transição)"],
+                   f"prioridade(1 garimpo a {NEAR_MINING_KM} km ou TI,2 floresta amazônica,3 Cerrado/Pantanal/transição)",
+                   "chance_de_ser_pista(modelo)"],
         "reg_fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "publico", "nome", "codigo", "municipio_uf"],
         "counts": counts,
         "cats": cats,
