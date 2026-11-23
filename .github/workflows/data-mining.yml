@@ -34,6 +34,9 @@ jobs:
       - run: scripts/data-branch.sh checkout
       - working-directory: pipeline
         run: python mining.py
+      - name: Radar IA
+        working-directory: pipeline
+        run: python radar.py || echo "radar ainda sem dados de floresta"
       - run: scripts/data-branch.sh publish "garimpo $(date -u +%FT%TZ)"
 
   deploy:

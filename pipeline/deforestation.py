@@ -36,6 +36,11 @@ import common as C
 BUCKET = "https://storage.googleapis.com/earthenginepartners-hansen"
 LIST_API = "https://storage.googleapis.com/storage/v1/b/earthenginepartners-hansen/o"
 
+GSW = "https://storage.googleapis.com/global-surface-water/downloads2021/occurrence"
+MASK_VERSION = "jrc-gsw-2021-b3s10"  # muda isto para forçar reprocessamento
+WATER_BUFFER_PX = 3   # ~90 m em volta de qualquer água já vista: sempre removido
+WATER_SOFT_PX = 10    # ~300 m (várzea): só fica alerta confirmado
+
 RECENT_DAYS = 35
 RECENT_CELL = 0.02
 YEAR_CELL = 0.1
@@ -79,6 +84,53 @@ def pixel_area_ha(lat, res_deg):
     return (m * m) * np.cos(np.radians(lat)) / 10_000.0
 
 
+def water_tile(left: int, top: int, tmp: Path, _cache={}):
+    """Tile de ocorrência de água (JRC Global Surface Water 1984-2021) do mesmo
+    recorte 10x10 graus dos tiles da UMD. Usado para tirar rios, lagos e áreas
+    alagáveis: a água que sobe e desce engana os alertas de desmatamento."""
+    lon = f"{abs(left)}{'W' if left < 0 else 'E'}"
+    lat = f"{abs(top)}{'S' if top < 0 else 'N'}"
+    name = f"occurrence_{lon}_{lat}v1_4_2021.tif"
+    if name in _cache and Path(_cache[name]).exists():
+        return _cache[name]
+    try:
+        p = C.download(f"{GSW}/{name}", tmp / name)
+    except FileNotFoundError:
+        p = None
+    _cache[name] = p
+    return p
+
+
+def dilate(mask: np.ndarray, b: int) -> np.ndarray:
+    """Dilatação quadrada separável (linhas, depois colunas)."""
+    if b <= 0 or not mask.any():
+        return mask
+    out = mask.copy()
+    for d in range(1, b + 1):
+        out[d:] |= mask[:-d]
+        out[:-d] |= mask[d:]
+    rows = out.copy()
+    for d in range(1, b + 1):
+        out[:, d:] |= rows[:, :-d]
+        out[:, :-d] |= rows[:, d:]
+    return out
+
+
+def water_mask(occ: np.ndarray, b: int = WATER_BUFFER_PX) -> np.ndarray:
+    """Pixel que já teve água alguma vez (1..100), com margem de b pixels."""
+    return dilate((occ > 0) & (occ <= 100), b)
+
+
+def glad_valid(a: dict) -> np.ndarray:
+    ok = (a["a"] >= 2) & (a["d"] > 0)
+    if "w" not in a or not ok.any():
+        return ok
+    water = (a["w"] > 0) & (a["w"] <= 100)
+    near = dilate(water, WATER_BUFFER_PX)
+    varzea = dilate(water, WATER_SOFT_PX)
+    return ok & ~near & ((a["a"] == 3) | ~varzea)
+
+
 def raster_cells(paths: dict, cell: float, value_fn, time_fn):
     """Varre um tile em faixas e devolve linhas (x, y, t, área_ha) agregadas.
 
@@ -118,6 +170,57 @@ def raster_cells(paths: dict, cell: float, value_fn, time_fn):
     return C.aggregate_xyt(allr[:, 0], allr[:, 1], allr[:, 2], allr[:, 3])
 
 
+def gfc_blocks(paths: dict, cell: float, threshold: int):
+    """Como raster_cells, mas para o GFC (todos os pixels de floresta), por blocos.
+
+    Os tiles de 10 graus caem exatamente na grade, então cada célula é um bloco
+    de n x n pixels; conta por (célula, ano da perda) num bincount só. Ano 0 =
+    floresta ainda de pé.
+    """
+    srcs = {k: rasterio.open(p) for k, p in paths.items()}
+    first = next(iter(srcs.values()))
+    tr = first.transform
+    res = tr.a
+    left, top = tr.c, tr.f
+    h, w = first.height, first.width
+    n = int(round(cell / res))
+    strip = n * max(1, STRIP // n)
+    x0 = int(round((left - C.ORIGIN[0]) / cell))
+    y_top = int(round((top - C.ORIGIN[1]) / cell))
+    ncx = w // n
+    parts = []
+    try:
+        for r0 in range(0, h, strip):
+            nrows = min(strip, h - r0)
+            win = Window(0, r0, w, nrows)
+            a = {k: s.read(1, window=win) for k, s in srcs.items()}
+            ok = a["t"] >= threshold
+            if "w" in a:
+                ok &= ~water_mask(a["w"])
+            if not ok.any():
+                continue
+            code = np.where(ok, a["l"].astype(np.int32) + 1, 0)  # 0 = fora; 1 = de pé; k+1 = perda em 2000+k
+            ncy = nrows // n
+            cy = np.arange(ncy * n, dtype=np.int32)[:, None] // n
+            cx = np.arange(ncx * n, dtype=np.int32)[None, :] // n
+            key = ((cy * ncx + cx) * 64 + code[: ncy * n, : ncx * n]).ravel()
+            cnt = np.bincount(key, minlength=ncy * ncx * 64).reshape(ncy, ncx, 64)
+            cnt[:, :, 0] = 0
+            iy, ix, ic = np.nonzero(cnt)
+            lat = top - (r0 + (iy + 0.5) * n) * res
+            area = cnt[iy, ix, ic] * pixel_area_ha(lat, res)
+            yrs = np.where(ic == 1, 0, ic - 1 + 2000)
+            gy = y_top - 1 - (r0 // n + iy)
+            parts.append(np.column_stack([x0 + ix, gy, yrs, area]))
+            del a, ok, code, key
+    finally:
+        for s in srcs.values():
+            s.close()
+    if not parts:
+        return np.zeros((0, 4))
+    return np.vstack(parts)
+
+
 def keep_brasil(rows, cell, _cache={}):
     if rows.size == 0:
         return rows
@@ -154,11 +257,16 @@ def process_glad_tile(year: int, tile: str, tmp: Path):
     pa = C.download(f"{base}/alert{yy:02d}_{tile}.tif", tmp / f"a{yy}_{tile}.tif")
     pd = C.download(f"{base}/alertDate{yy:02d}_{tile}.tif", tmp / f"d{yy}_{tile}.tif")
     jan1 = C.day_number(dt.date(year, 1, 1))
+    m = re.match(r"(\d{3}[EW])_(\d\d[NS])_(\d{3}[EW])_(\d\d[NS])", tile)
+    wt = water_tile(int(_lonlat(m[1])), int(_lonlat(m[4])), tmp)
+    paths = {"a": pa, "d": pd}
+    if wt:
+        paths["w"] = wt
     try:
         rows = raster_cells(
-            {"a": pa, "d": pd},
+            paths,
             RECENT_CELL,
-            lambda a: (a["a"] >= 2) & (a["d"] > 0),
+            glad_valid,
             lambda a, idx: a["d"][idx].astype(np.int64) - 1 + jan1,
         )
     finally:
@@ -233,7 +341,8 @@ def run_alerts(years: list[int]):
     man = C.read_json(C.DATA_DIR / "manifest.json", {}) or {}
     have = set(man.get("layers", {}).get("deforestation", {}).get("alert_years", []))
     have |= set(years)
-    C.update_manifest("deforestation", {"alert_years": sorted(have), "alerts_updated": C.now_iso()})
+    C.update_manifest("deforestation", {"alert_years": sorted(have), "alerts_updated": C.now_iso(),
+                                        "alerts_mask": MASK_VERSION})
     C.update_stats("deforestation", "alertas_glad_ha", totals)
 
 
@@ -272,13 +381,13 @@ def process_gfc_tile(version: str, tile: str, tmp: Path, threshold: int):
         print(f"  (sem tile {tile})")
         return np.zeros((0, 4))
     pt = C.download(f"{base}_treecover2000_{tile}.tif", tmp / f"tc_{tile}.tif")
+    lat_s, lon_s = tile.split("_")
+    wt = water_tile(int(_lonlat(lon_s)), int(_lonlat(lat_s)), tmp)
+    paths = {"l": pl, "t": pt}
+    if wt:
+        paths["w"] = wt
     try:
-        rows = raster_cells(
-            {"l": pl, "t": pt},
-            LOSS_CELL,
-            lambda a: (a["l"] > 0) & (a["t"] >= threshold),
-            lambda a, idx: a["l"][idx].astype(np.int64) + 2000,
-        )
+        rows = gfc_blocks(paths, LOSS_CELL, threshold)
     finally:
         pl.unlink(missing_ok=True)
         pt.unlink(missing_ok=True)
@@ -289,7 +398,8 @@ def process_gfc_tile(version: str, tile: str, tmp: Path, threshold: int):
 def run_loss(threshold: int = 30, workers: int = 2):
     version, last_year = latest_gfc()
     man = C.read_json(C.DATA_DIR / "manifest.json", {}) or {}
-    if man.get("layers", {}).get("deforestation", {}).get("loss_version") == version and not FORCE:
+    dl = man.get("layers", {}).get("deforestation", {})
+    if dl.get("loss_version") == version and dl.get("loss_mask") == MASK_VERSION and not FORCE:
         print(f"GFC {version} já processado; nada a fazer (use --force)")
         return
     tiles = gfc_tiles()
@@ -307,6 +417,13 @@ def run_loss(threshold: int = 30, workers: int = 2):
     allr = C.aggregate_xyt(allr[:, 0], allr[:, 1], allr[:, 2], allr[:, 3])
     allr = keep_brasil(allr, LOSS_CELL)
     out = C.DATA_DIR / "deforestation" / "loss"
+    standing = allr[allr[:, 2] == 0]
+    allr = allr[allr[:, 2] > 0]
+    standing[:, 2] = last_year
+    C.write_cells(C.DATA_DIR / "deforestation" / "forest.json", layer="deforestation",
+                  kind="floresta remanescente (cobertura 2000 sem perda)", source=f"UMD Hansen {version}",
+                  cell=LOSS_CELL, time_unit="year", value="ha", rows=standing,
+                  extra={"year": last_year, "treecover_threshold": threshold})
     years = sorted(int(y) for y in np.unique(allr[:, 2]))
     totals = {}
     for y in years:
@@ -319,7 +436,8 @@ def run_loss(threshold: int = 30, workers: int = 2):
     C.write_cells(out / "summary.json", layer="deforestation", kind="perda de floresta (resumo)",
                   source=f"UMD Hansen {version}", cell=SUMMARY_CELL, time_unit="year", value="ha",
                   rows=summ, extra={"treecover_threshold": threshold})
-    C.update_manifest("deforestation", {"loss_years": years, "loss_version": version, "loss_updated": C.now_iso()})
+    C.update_manifest("deforestation", {"loss_years": years, "loss_version": version, "loss_mask": MASK_VERSION,
+                                       "loss_updated": C.now_iso()})
     C.update_stats("deforestation", "perda_hansen_ha", totals)
 
 
@@ -337,8 +455,8 @@ if __name__ == "__main__":
         today = dt.date.today()
         years = a.years or [today.year]
         if a.missing and not a.years:
-            have = set((C.read_json(C.DATA_DIR / "manifest.json", {}) or {}).get("layers", {})
-                       .get("deforestation", {}).get("alert_years", []))
+            dl = (C.read_json(C.DATA_DIR / "manifest.json", {}) or {}).get("layers", {}).get("deforestation", {})
+            have = set(dl.get("alert_years", [])) if dl.get("alerts_mask") == MASK_VERSION else set()
             years = sorted({today.year} | {y for y in range(2021, today.year) if y not in have})
             # em janeiro o ano anterior ainda recebe alertas atrasados
             if today.month == 1:

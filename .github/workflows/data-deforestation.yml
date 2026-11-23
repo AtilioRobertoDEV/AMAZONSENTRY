@@ -5,7 +5,7 @@ on:
     - cron: "45 9 * * *"    # diário, depois da publicação dos alertas GLAD da América do Sul
   push:
     branches: [main]
-    paths: ["pipeline/deforestation.py", "pipeline/common.py"]
+    paths: ["pipeline/deforestation.py", "pipeline/radar.py", "pipeline/common.py"]
   workflow_dispatch:
     inputs:
       alert_years:
@@ -52,6 +52,9 @@ jobs:
       - name: Perda anual Hansen (só quando sai versão nova)
         working-directory: pipeline
         run: python deforestation.py loss ${{ inputs.force_loss && '--force' || '' }}
+      - name: Radar IA
+        working-directory: pipeline
+        run: python radar.py
       - run: scripts/data-branch.sh publish "desmatamento $(date -u +%FT%TZ)"
 
   deploy:

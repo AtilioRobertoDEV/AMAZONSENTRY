@@ -2,90 +2,126 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AMAZON SENTRY · Ameaças ambientais no Brasil</title>
-  <meta name="description" content="Mapa interativo de queimadas, desmatamento e garimpo no Brasil: ao vivo, semana, mês, ano e série histórica.">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Amazon Sentry: fogo, desmatamento e garimpo no Brasil</title>
+  <meta name="description" content="Mapa de focos de fogo, desmatamento e garimpo no Brasil a partir de satélites, com série histórica e um radar de IA que aponta onde a floresta deve cair em seguida.">
+  <meta name="theme-color" content="#1b140f">
+  <link rel="preload" href="vendor/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="vendor/maplibre-gl.css">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body data-mode="live">
   <div id="map" aria-label="Mapa do Brasil"></div>
 
-  <aside id="panel">
-    <header>
-      <h1>AMAZON <span>SENTRY</span></h1>
-      <p class="sub">Queimadas, desmatamento e garimpo no Brasil</p>
+  <aside id="rail" aria-label="Controles do mapa">
+    <button id="sheet-handle" aria-expanded="true" aria-controls="rail-body">
+      <span class="grip" aria-hidden="true"></span><span class="sr">Mostrar ou esconder o painel</span>
+    </button>
+
+    <header id="brand">
+      <h1>Amazon <br>Sentry</h1>
+      <p>Fogo, desmatamento e garimpo no Brasil, vistos por satélite.</p>
     </header>
 
-    <section>
-      <h2>Período</h2>
-      <div id="modes" class="seg" role="tablist">
-        <button data-mode="live" class="on" title="Últimas 24 horas de dados">Ao vivo</button>
-        <button data-mode="week" title="Últimos 7 dias">Semana</button>
-        <button data-mode="month" title="Últimos 30 dias">Mês</button>
-        <button data-mode="year" title="Ano corrente">Ano</button>
-        <button data-mode="history" title="Série histórica, ano a ano">Histórico</button>
-      </div>
-      <p id="window-label" class="muted"></p>
-    </section>
+    <nav id="modes" aria-label="Período">
+      <button data-mode="live" aria-pressed="true">Agora</button>
+      <button data-mode="week" aria-pressed="false">7 dias</button>
+      <button data-mode="month" aria-pressed="false">30 dias</button>
+      <button data-mode="year" aria-pressed="false">Este ano</button>
+      <button data-mode="history" aria-pressed="false">Histórico</button>
+      <button data-mode="radar" aria-pressed="false" class="radar-tab">Radar IA</button>
+    </nav>
 
-    <section>
-      <h2>Camadas</h2>
-      <ul id="layers">
-        <li data-layer="fires">
-          <label><input type="checkbox" checked> <i class="sw fires"></i> Queimadas</label>
-          <div class="stat"><b data-total>–</b> <small data-note></small></div>
-        </li>
-        <li data-layer="deforestation">
-          <label><input type="checkbox" checked> <i class="sw deforestation"></i> Desmatamento</label>
-          <div class="stat"><b data-total>–</b> <small data-note></small></div>
-        </li>
-        <li data-layer="mining">
-          <label><input type="checkbox" checked> <i class="sw mining"></i> Garimpo</label>
-          <div class="stat"><b data-total>–</b> <small data-note></small></div>
-        </li>
-      </ul>
-      <label class="opt" id="cumulative-opt" hidden><input type="checkbox" id="cumulative"> Acumulado até o ano escolhido (desmatamento e garimpo)</label>
-    </section>
+    <div id="rail-body">
+      <p id="lede" aria-live="polite">Carregando dados…</p>
 
-    <section>
-      <h2>Fundo do mapa</h2>
-      <div id="basemaps" class="seg small">
-        <button data-base="dark" class="on">Escuro</button>
-        <button data-base="sat">Satélite</button>
-        <button data-base="s2" title="Mosaico Sentinel-2 sem nuvens do ano escolhido (EOX, 2016+)">Imagem do ano</button>
-      </div>
-      <p id="base-note" class="muted"></p>
-    </section>
+      <!-- observação: o que os satélites viram -->
+      <section id="observed" aria-label="Camadas">
+        <button class="layer" data-layer="fires" aria-pressed="true">
+          <span class="sw" aria-hidden="true"></span>
+          <span class="name">Focos de fogo</span>
+          <span class="num" data-total>–</span>
+          <span class="note" data-note></span>
+        </button>
+        <button class="layer" data-layer="deforestation" aria-pressed="true">
+          <span class="sw" aria-hidden="true"></span>
+          <span class="name">Desmatamento</span>
+          <span class="num" data-total>–</span>
+          <span class="note" data-note></span>
+        </button>
+        <button class="layer" data-layer="mining" aria-pressed="true">
+          <span class="sw" aria-hidden="true"></span>
+          <span class="name">Garimpo</span>
+          <span class="num" data-total>–</span>
+          <span class="note" data-note></span>
+        </button>
+        <label class="check" id="cumulative-opt" hidden>
+          <input type="checkbox" id="cumulative"> Somar todos os anos até o escolhido
+        </label>
+      </section>
 
-    <section id="charts-sec">
-      <h2>Série anual <small class="muted">(clique num ano)</small></h2>
-      <div id="charts"></div>
-    </section>
+      <!-- radar: o que o modelo espera -->
+      <section id="radar" aria-label="Radar IA" hidden>
+        <p id="radar-intro"></p>
+        <div class="radar-layers">
+          <button class="layer small" data-radar="risk_def" aria-pressed="true">
+            <span class="sw ring def" aria-hidden="true"></span><span class="name">Chance de desmatamento forte</span>
+          </button>
+          <button class="layer small" data-radar="risk_min" aria-pressed="true">
+            <span class="sw ring min" aria-hidden="true"></span><span class="name">Chance de garimpo novo</span>
+          </button>
+          <button class="layer small" data-radar="fronts" aria-pressed="true">
+            <span class="sw dot front" aria-hidden="true"></span><span class="name" id="fronts-name">Aberturas recentes</span>
+          </button>
+        </div>
+        <ul id="fronts-key"></ul>
+        <h2>Onde olhar primeiro</h2>
+        <ol id="priority"></ol>
+        <details id="method">
+          <summary>Como o radar funciona</summary>
+          <div id="method-body"></div>
+        </details>
+      </section>
 
-    <footer>
-      <p id="updated" class="muted">Carregando dados…</p>
-      <details>
-        <summary>Fontes e limitações</summary>
-        <ul class="sources">
-          <li><b>Queimadas:</b> NASA FIRMS (VIIRS NOAA-20/21, S-NPP e MODIS). Focos de calor detectados por satélite, atualizados a cada 3 horas.</li>
-          <li><b>Desmatamento:</b> alertas GLAD-L (Landsat, Univ. de Maryland, atualização diária) e perda anual de floresta Hansen/UMD Global Forest Change (2001+, cobertura arbórea ≥ 30%).</li>
-          <li><b>Garimpo:</b> Amazon Mining Watch (Earth Genome, Pulitzer Center e Amazon Conservation), bacia amazônica, 2018+. CC BY 4.0.</li>
-          <li><b>Imagens:</b> Esri World Imagery; Sentinel-2 cloudless © EOX (2016+).</li>
-          <li>Satélite detecta a perda de floresta e o garimpo, não a legalidade. Para dizer que algo é ilegal é preciso cruzar com autorizações, terras indígenas e unidades de conservação.</li>
-          <li>Todos os dados ficam copiados neste site; o mapa não consulta as fontes na hora da visita.</li>
-        </ul>
-      </details>
-    </footer>
+      <section id="trend" aria-label="Série anual">
+        <h2 id="trend-title">Ano a ano</h2>
+        <div id="charts"></div>
+      </section>
+
+      <section id="base" aria-label="Fundo do mapa">
+        <h2>Fundo do mapa</h2>
+        <div class="seg" id="basemaps">
+          <button data-base="dark" aria-pressed="true">Mapa</button>
+          <button data-base="sat" aria-pressed="false">Satélite</button>
+          <button data-base="s2" aria-pressed="false" title="Mosaico Sentinel-2 sem nuvens do ano escolhido (2016 em diante)">Imagem do ano</button>
+        </div>
+        <p id="base-note" class="fine"></p>
+      </section>
+
+      <footer>
+        <p id="updated" class="fine"></p>
+        <details>
+          <summary>Fontes e limites</summary>
+          <ul class="sources">
+            <li><b>Fogo:</b> NASA FIRMS (VIIRS NOAA-20/21, S-NPP e MODIS). Focos de calor detectados por satélite, atualizados a cada 3 horas.</li>
+            <li><b>Desmatamento:</b> alertas GLAD-L (Landsat, Universidade de Maryland, diários) e perda anual de floresta Hansen/UMD Global Forest Change, 2001 em diante, cobertura arbórea de 30% ou mais. Rios, lagos e várzeas saem pela máscara de água JRC Global Surface Water.</li>
+            <li><b>Garimpo:</b> Amazon Mining Watch (Earth Genome, Pulitzer Center e Amazon Conservation), bacia amazônica, 2018 em diante. CC BY 4.0.</li>
+            <li><b>Imagens:</b> Esri World Imagery; Sentinel-2 cloudless © EOX.</li>
+            <li>O satélite vê a floresta caindo e a terra revirada, não a licença. Saber se é ilegal exige cruzar com autorizações, terras indígenas e unidades de conservação.</li>
+            <li>Os dados ficam guardados neste site; o mapa não depende das fontes na hora da visita.</li>
+          </ul>
+        </details>
+      </footer>
+    </div>
   </aside>
 
   <div id="timeline" hidden>
-    <button id="play" title="Reproduzir a série">▶</button>
+    <button id="play" aria-label="Reproduzir a série ano a ano"><span aria-hidden="true">▶</span></button>
     <input id="year" type="range" min="1985" max="2026" step="1" value="2026" aria-label="Ano">
-    <output id="year-label">2026</output>
+    <output id="year-label" for="year">2026</output>
   </div>
 
-  <div id="loading" hidden>carregando…</div>
+  <div id="loading" role="status" hidden>Carregando</div>
 
   <script src="vendor/maplibre-gl.js"></script>
   <script src="app.js"></script>
