@@ -627,6 +627,11 @@ def analyze(c, years):
         return series[ys[i]]["open"] >= 0.8 and series[ys[i]]["con"] >= 0.3
     first_open = next((ys[i] for i in range(len(ys)) if opened(i)), None)
     if first_open is None:
+        if "apontada" in (c.get("srcs") or [c.get("src")]):
+            # quem apontou viu a pista no satélite; mato tomando a faixa = perdendo uso
+            res["status"] = "perdendo uso"
+            res["why"] = "apontada, faixa tomada pelo mato"
+            return res
         res["status"] = "sem confirmação"
         res["why"] = "não abre"
         return res
@@ -1129,7 +1134,8 @@ def write_output(sites, items, this_year):
         if det and not SHOW_DETECTOR:
             continue
         p = pista_chance(r)
-        if det and (p is None or p < P_DETECTOR) or p is not None and p < P_KEEP:
+        told = "apontada" in c["srcs"]   # vista por quem usa o site: o modelo não tira
+        if not told and (det and (p is None or p < P_DETECTOR) or p is not None and p < P_KEEP):
             if r.get("status") not in (None, "sem confirmação"):
                 counts["parece estrada ou rio"] = counts.get("parece estrada ou rio", 0) + 1
             continue
