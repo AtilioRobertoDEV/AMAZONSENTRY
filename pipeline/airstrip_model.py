@@ -42,31 +42,34 @@ MODEL = Path(__file__).parent / "airstrip_model.json"
 BANDS = ("B02", "B03", "B04", "B08", "B11", "B12")
 ROADS = "trunk|primary|secondary|tertiary|unclassified|residential|track|service"
 WATERS = "river|canal|stream|ditch|drain"
+FEAT_V = 1   # suba quando mudar o jeito de medir (FEATURES ou measure)
 PAVED = {"asphalt", "paved", "concrete", "paving_stones", "sett", "chipseal"}
 
 
 # ------------------------------------------------------------------ exemplos do OSM
 
-def _overpass(q):
+def _overpass(q, first=0):
+    """Uma consulta curta ao Overpass, revezando os servidores; None se todos falharem."""
     import requests
     from airstrips import OVERPASS
-    for url in OVERPASS:
-        for attempt in range(3):
-            try:
-                r = requests.post(url, data={"data": q}, timeout=900, headers=C.UA)
-                if r.status_code in (429, 504):
-                    time.sleep(30 * (attempt + 1))
-                    continue
-                r.raise_for_status()
-                return r.json().get("elements", [])
-            except Exception as e:  # noqa: BLE001
-                print(f"  ! Overpass {url}: {e}")
-                time.sleep(10)
+    for j in range(len(OVERPASS)):
+        url = OVERPASS[(first + j) % len(OVERPASS)]
+        try:
+            r = requests.post(url, data={"data": q}, timeout=150, headers=C.UA)
+            if r.status_code in (429, 504):
+                print(f"  ! Overpass {url}: HTTP {r.status_code}", flush=True)
+                time.sleep(15)
+                continue
+            r.raise_for_status()
+            return r.json().get("elements", [])
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! Overpass {url}: {str(e)[:120]}", flush=True)
     return None
 
 
-def fetch(n_sites=900, half=0.025, chunk=30):
-    """Estradas e rios do OSM em quadros de ~5 km em volta de pistas conhecidas."""
+def fetch(n_sites=600, half=0.02, chunk=8, budget_min=35, enough=6000):
+    """Estradas e rios do OSM em quadros de ~4 km em volta de pistas conhecidas.
+    Grava aos poucos e retoma de onde parou; para no orçamento de tempo."""
     osm = C.read_json(CACHE / "osm.json") or {}
     pts = []
     for el in osm.get("elements", []):
@@ -85,15 +88,25 @@ def fetch(n_sites=900, half=0.025, chunk=30):
     pts = [p for p, k in zip(pts, keep) if k]
     random.Random(7).shuffle(pts)
     pts = pts[:n_sites]
-    print(f"Buscando estradas e rios do OSM em {len(pts)} quadros")
-    ways, seen = [], set()
-    for i in range(0, len(pts), chunk):
-        boxes = [f"({la - half},{lo - half},{la + half},{lo + half})" for lo, la in pts[i:i + chunk]]
-        body = "".join(f'way["highway"~"^({ROADS})$"]{b};way["waterway"~"^({WATERS})$"]{b};' for b in boxes)
-        els = _overpass(f"[out:json][timeout:600];({body});out tags geom;")
-        if els is None:
-            print(f"  ! lote {i // chunk} falhou")
+    out = CACHE / "train_osm.json"
+    doc = C.read_json(out, {}) or {}
+    ways = doc.get("ways", [])
+    done = set(doc.get("done", []))
+    seen = {w["id"] for w in ways}
+    print(f"Buscando estradas e rios do OSM em {len(pts)} quadros ({len(done)} lotes já feitos)", flush=True)
+    t0 = time.time()
+    lots = list(range(0, len(pts), chunk))
+    for n, i in enumerate(lots):
+        if i in done:
             continue
+        if time.time() - t0 > budget_min * 60 or len(ways) >= enough:
+            break
+        boxes = [f"({la - half:.4f},{lo - half:.4f},{la + half:.4f},{lo + half:.4f})" for lo, la in pts[i:i + chunk]]
+        body = "".join(f'way["highway"~"^({ROADS})$"]{b};way["waterway"~"^({WATERS})$"]{b};' for b in boxes)
+        els = _overpass(f"[out:json][timeout:120];({body});out tags geom;", first=n)
+        if els is None:
+            continue
+        done.add(i)
         for el in els:
             if el["id"] in seen or not el.get("geometry"):
                 continue
@@ -102,9 +115,11 @@ def fetch(n_sites=900, half=0.025, chunk=30):
             ways.append({"id": el["id"], "kind": "water" if "waterway" in t else "road",
                          "cls": t.get("waterway") or t.get("highway"), "surface": t.get("surface", ""),
                          "g": [[round(p["lon"], 6), round(p["lat"], 6)] for p in el["geometry"]]})
-        print(f"  lote {i // chunk + 1}/{(len(pts) + chunk - 1) // chunk}: {len(ways)} vias")
-        time.sleep(2)
-    C.write_json(CACHE / "train_osm.json", {"checked": dt.date.today().isoformat(), "ways": ways})
+        print(f"  lote {n + 1}/{len(lots)}: {len(ways)} vias ({(time.time() - t0) / 60:.0f} min)", flush=True)
+        if n % 5 == 0:
+            C.write_json(out, {"checked": dt.date.today().isoformat(), "done": sorted(done), "ways": ways})
+    C.write_json(out, {"checked": dt.date.today().isoformat(), "done": sorted(done), "ways": ways})
+    print(f"  {len(ways)} vias", flush=True)
 
 
 def straight_pieces(g, lo=350, hi=1900, tol=12):
@@ -303,7 +318,7 @@ def features(workers=16, budget_min=120):
                              "x": r[0] if r else None, "date": r[1] if r else None}
             n += 1
             if n % 100 == 0:
-                print(f"  {n}/{len(todo)} ({(time.time() - t0) / 60:.0f} min)")
+                print(f"  {n}/{len(todo)} ({(time.time() - t0) / 60:.0f} min)", flush=True)
                 C.write_json(p, doc)
             if time.time() - t0 > budget_min * 60:
                 for g in futs:
@@ -354,6 +369,10 @@ def train(path=None):
 
 
 _model = None
+
+
+def model_id():
+    return json.loads(MODEL.read_text()).get("trained") if MODEL.exists() else None
 
 
 def predict(x):

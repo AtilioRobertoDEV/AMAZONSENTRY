@@ -33,9 +33,9 @@ jobs:
       - name: Exemplos do OSM
         if: contains(inputs.steps, 'fetch')
         working-directory: pipeline
-        run: python airstrip_model.py fetch
+        run: python -u airstrip_model.py fetch
       - name: Medidas no Sentinel-2
         if: contains(inputs.steps, 'features')
         working-directory: pipeline
-        run: python airstrip_model.py features --workers 24 --budget 150
+        run: python -u airstrip_model.py features --workers 24 --budget 120
       - run: scripts/data-branch.sh publish "treino pistas $(date -u +%FT%TZ)"
