@@ -36,7 +36,7 @@ const state = {
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
   playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
-  imgYear: null, follow: true, badYears: new Map(),
+  imgYear: null, follow: true, badYears: new Map(), legal: 'all',
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -116,7 +116,7 @@ function toFeatures(cells, layer, f, shape) {
   for (const c of vals) {
     if (c.v < ref * 0.08) continue;           // ruído visual fora do desenho (mas dentro do total)
     const x0 = cells.ox + c.x * cs, y0 = cells.oy + c.y * cs;
-    const props = { layer, v: c.v, w: Math.min(1, c.v / ref), cs };
+    const props = { layer, v: c.v, w: Math.min(1, c.v / ref), cs, x0, y0 };
     const geometry = shape === 'square'
       ? { type: 'Polygon', coordinates: [[[x0, y0], [x0 + cs, y0], [x0 + cs, y0 + cs], [x0, y0 + cs], [x0, y0]]] }
       : { type: 'Point', coordinates: [x0 + cs / 2, y0 + cs / 2] };
@@ -281,7 +281,7 @@ function onMapClick(e) {
       <p>Chance de perder 50 ha ou mais de floresta: <b>${c ? c.rd : 0}%</b><br>Chance de surgir garimpo novo: <b>${c ? c.rm : 0}%</b></p>
       <p class="fine">Quadro de ~11 km.</p>`;
   } else if (p.layer === 'mining') {
-    html = `<h3>Garimpo novo</h3><div class="big">${haTxt(p.v)}</div>de área de garimpo detectada`;
+    html = `<h3>Garimpo novo</h3><div class="big">${haTxt(p.v)}</div>de área de garimpo detectada${legalPopup(p)}`;
   } else {
     html = `<h3>Floresta perdida</h3><div class="big">${haTxt(p.v)}</div>de floresta derrubada nesta área`;
   }
@@ -363,18 +363,80 @@ async function miningData() {
     note = y < 2018 ? 'o monitoramento começa em 2018' : cum ? `somado de 2018 a ${y}` : `garimpo que surgiu em ${y}`;
     if (y === 2018 && !cum) note = 'garimpo que já existia em 2018';
   }
+  const legal = await legalIndex();
+  const want = legal ? state.legal : 'all';
   const cs = 0.02, out = new Map();
   let total = 0, count = 0;
+  const tally = { sem: 0, com: 0, prot: 0, all: 0 }, items = [];
   for (let i = 0; i < d.length; i += 5) {
     if (!keep(d[i + 2])) continue;
     const v = d[i + 4];
+    const L = legal?.get(`${d[i]},${d[i + 1]}`);
+    const cls = legalClass(L);
+    tally.all += v;
+    if (cls) tally[cls] += v;
+    if (L && (L.a === 1 || L.a === 2)) tally.prot += v;
+    items.push({ x: d[i] / 1000, y: d[i + 1] / 1000, v, L, cls });
+    if (want !== 'all' && cls !== want) continue;
     total += v; count += 1;
     const x = Math.floor((d[i] / 1000 + 75) / cs), y = Math.floor((d[i + 1] / 1000 + 35) / cs);
     const k = x * 100000 + y;
     const cur = out.get(k);
     if (cur) cur.v += v; else out.set(k, { x, y, v });
   }
-  return { cells: { cs, ox: -75, oy: -35, list: [...out.values()], total }, total, count, note, period: lastP };
+  return { cells: { cs, ox: -75, oy: -35, list: [...out.values()], total }, total, count, note, period: lastP, items, tally,
+    legalNote: legal ? legalSummary(tally) : '' };
+}
+
+// ------------------------------------------------------------------ autorização (ANM) e áreas protegidas
+// Cada detecção vem marcada pelo pipeline (legal.py): título na ANM e se cai em
+// terra indígena ou unidade de conservação. "Sem autorização" = sem lavra autorizada
+// na ANM, ou dentro de terra indígena ou UC de proteção integral (onde é proibido).
+async function legalIndex() {
+  if (state.legalIdx !== undefined) return state.legalIdx;
+  const doc = await getJSON('mining/legal.json');
+  if (!doc?.data?.length) { state.legalIdx = null; return null; }
+  const m = new Map(), d = doc.data;
+  for (let i = 0; i < d.length; i += 5) m.set(`${d[i]},${d[i + 1]}`, { t: d[i + 2], a: d[i + 3], n: doc.nomes[d[i + 4]] || '' });
+  state.legalDoc = doc;
+  state.legalIdx = m;
+  $('#legal-opt').hidden = !state.on.mining;
+  return m;
+}
+const legalClass = (L) => (!L ? null : L.t < 2 || L.a === 1 || L.a === 2 ? 'sem' : 'com');
+const pct = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : '0%');
+function legalSummary(t) {
+  if (!t.all) return '';
+  return `${pct(t.sem, t.all)} da área sem autorização de lavra na ANM${t.prot ? `, ${pct(t.prot, t.all)} em terra indígena ou UC de proteção integral` : ''}.`;
+}
+
+function legalPopup(p) {
+  const r = state.results.mining;
+  if (!state.legalIdx || !r?.items) return '';
+  const x1 = p.x0 + p.cs, y1 = p.y0 + p.cs;
+  let sem = 0, com = 0, semTit = 0, pedido = 0;
+  const areas = new Map();
+  for (const it of r.items) {
+    if (it.x < p.x0 || it.x >= x1 || it.y < p.y0 || it.y >= y1 || !it.cls) continue;
+    if (it.cls === 'com') com += it.v; else sem += it.v;
+    if (it.L.t === 0) semTit += it.v;
+    if (it.L.t === 1) pedido += it.v;
+    if (it.L.n) areas.set(it.L.n, (areas.get(it.L.n) || 0) + it.v);
+  }
+  if (!sem && !com) return '';
+  const tops = [...areas.entries()].sort((a, b) => b[1] - a[1]).slice(0, 2);
+  return `<ul class="legal">
+    ${sem ? `<li class="sem"><b>${haTxt(sem)}</b> sem autorização${semTit && pedido ? ` (${haTxt(semTit)} sem nenhum processo, ${haTxt(pedido)} só com pedido ou pesquisa)` : semTit ? ', sem nenhum processo na ANM' : pedido ? ', só com pedido ou pesquisa na ANM' : ''}</li>` : ''}
+    ${com ? `<li class="com"><b>${haTxt(com)}</b> com lavra autorizada na ANM</li>` : ''}
+    ${tops.map(([n, v]) => `<li class="area">${haTxt(v)} dentro de ${esc(n)}</li>`).join('')}
+  </ul><p class="fine">Autorização = concessão de lavra, lavra garimpeira, licenciamento ou registro de extração na ANM. A licença ambiental não é conferida.</p>`;
+}
+
+function setLegal(v) {
+  state.legal = v;
+  $$('#legal button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.legal === v)));
+  syncURL();
+  render();
 }
 
 function periodLabel(p) {
@@ -627,6 +689,10 @@ async function render() {
     else num = `${haTxt(r.total || 0).replace(' ha', '')}<small>ha</small>`;
     $('[data-total]', btn).innerHTML = num;
     $('[data-note]', btn).textContent = r.note || '';
+    if (l === 'mining') {
+      $('#legal-note').textContent = r.legalNote || '';
+      if (state.legal !== 'all' && r.note) $('[data-note]', btn).textContent = `${r.note}, só ${state.legal === 'sem' ? 'sem' : 'com'} autorização`;
+    }
   });
   writeLede();
   $('#loading').hidden = true;
@@ -637,7 +703,8 @@ async function render() {
 function writeLede() {
   const r = state.results, m = state.mode, on = state.on;
   const defo = `<b>${haTxt(r.deforestation?.total || 0)}</b> de floresta derrubada`;
-  const mine = `<b>${haTxt(r.mining?.total || 0)}</b> de garimpo novo`;
+  const aut = state.legalIdx && state.legal !== 'all' ? ` ${state.legal} autorização` : '';
+  const mine = `<b>${haTxt(r.mining?.total || 0)}</b> de garimpo novo${aut}`;
   const both = on.deforestation && on.mining;
   let s;
   if (m === 'week' || m === 'month') {
@@ -1276,6 +1343,7 @@ function syncURL() {
   if (tipos !== '0') q.set('pistas', tipos.replace('reg', 'anac'));
   if (state.base === 'dark') q.set('fundo', 'mapa');
   else if (state.mode !== 'history' && state.imgYear) q.set('imagem', state.imgYear);
+  if (state.legal !== 'all') q.set('autorizacao', state.legal);
   const s = q.toString();
   history.replaceState(null, '', s ? `?${s}` : location.pathname);
 }
@@ -1401,6 +1469,7 @@ const VER = { deforestation: 'desmatamento', mining: 'garimpo', airstrips: 'pist
 function layersChanged() {
   $$('#show button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.show === showValue())));
   $$('.layer[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(state.on[b.dataset.layer])));
+  $('#legal-opt').hidden = !state.on.mining || !state.legalIdx;
   LAYERS.forEach(drawLayer);
   drawAir();
   drawAirKey();
@@ -1446,6 +1515,7 @@ async function buildOutside() {
 function bind() {
   $$('#modes button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
   $$('#show button').forEach((b) => b.addEventListener('click', () => setShow(b.dataset.show)));
+  $$('#legal button').forEach((b) => b.addEventListener('click', () => setLegal(b.dataset.legal)));
   $$('.layer[data-layer]').forEach((btn) => btn.addEventListener('click', () => {
     const l = btn.dataset.layer;
     state.on[l] = !state.on[l];
@@ -1500,6 +1570,11 @@ function bind() {
   if (tipos.length) state.airTypes = new Set(tipos);
   const evo = (q.get('evolucao') || '').split(',').map(Number);
   if (evo.length === 2 && evo.every(Number.isFinite)) setTimeout(() => openTimelapse(evo[0], evo[1]), 300);
+  const aut = q.get('autorizacao');
+  if (aut === 'sem' || aut === 'com') {
+    state.legal = aut;
+    $$('#legal button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.legal === aut)));
+  }
   const fundo = q.get('fundo'), imagem = +q.get('imagem');
   if (fundo === 'mapa' || fundo === 'dark') pickImage('mapa');
   else if (TL_YEARS.includes(imagem)) pickImage(String(imagem));

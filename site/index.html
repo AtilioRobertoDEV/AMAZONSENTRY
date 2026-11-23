@@ -57,6 +57,15 @@
           <span class="num" data-total>–</span>
           <span class="note" data-note></span>
         </button>
+        <div class="show" id="legal-opt" hidden>
+          <span class="show-label" id="legal-label">Garimpo com autorização de lavra na ANM?</span>
+          <div class="seg" id="legal" role="group" aria-labelledby="legal-label">
+            <button data-legal="all" aria-pressed="true">Todos</button>
+            <button data-legal="sem" aria-pressed="false">Sem</button>
+            <button data-legal="com" aria-pressed="false">Com</button>
+          </div>
+          <p class="fine" id="legal-note"></p>
+        </div>
         <button class="layer" data-layer="airstrips" aria-pressed="true">
           <span class="sw" aria-hidden="true"></span>
           <span class="name">Pistas sem registro</span>
@@ -110,7 +119,8 @@
           <summary>Fontes e limites</summary>
           <ul class="sources">
             <li><b>Floresta perdida:</b> alertas GLAD-L (Landsat, Universidade de Maryland, diários) e perda anual de floresta Hansen/UMD Global Forest Change, 2001 em diante, cobertura arbórea de 30% ou mais. Rios, lagos, bancos de areia e planícies de inundação (várzea e igapó) ficam de fora, usando a água vista pelo JRC Global Surface Water e a altura acima do rio do Copernicus GLO-30 HAND. Desmatamento real dentro da várzea também some do mapa.</li>
-            <li><b>Garimpo:</b> Amazon Mining Watch (Earth Genome, Pulitzer Center e Amazon Conservation), bacia amazônica, 2018 em diante. CC BY 4.0. Cada detecção é conferida com perda de floresta, alertas GLAD e água do JRC; as que caem só em leito de rio ou praia são descartadas.</li>
+            <li><b>Garimpo:</b> Amazon Mining Watch (Earth Genome, Pulitzer Center e Amazon Conservation), bacia amazônica, 2018 em diante. CC BY 4.0. Cada detecção é conferida com perda de floresta, alertas GLAD e água do JRC: sai o que cai em floresta intacta sem nenhum sinal de abertura, e o garimpo que já existia antes de ser detectado volta para o ano em que surgiu.</li>
+            <li><b>Autorização:</b> cada garimpo é cruzado com os processos minerários da ANM (SIGMINE) e com terras indígenas e unidades de conservação (WDPA/Protected Planet; FUNAI quando faltar). "Com autorização" é ter concessão de lavra, lavra garimpeira, licenciamento ou registro de extração, fora de terra indígena e de UC de proteção integral. Licença ambiental não é conferida. Os dados ficam guardados aqui e são atualizados toda semana.</li>
             <li><b>Pistas sem registro:</b> candidatas do OpenStreetMap, do OurAirports e do MapBiomas, na Amazônia Legal. Saem as que têm código de aeródromo (registradas) Pistas de aldeia e de cidade ou vila, que são de uso público mesmo quando faltam na lista da ANAC, ficam em tipos à parte, assim como os aeródromos registrados (cadastro da ANAC, guardado no site). Quando a pista está desenhada no OpenStreetMap, o eixo é esse traçado; água (rio, lago) não conta como pista. Terras indígenas: FUNAI ou, se ela estiver fora do ar, OpenStreetMap. O mapa mostra primeiro as pistas na floresta amazônica e as que ficam a até 20 km de garimpo ou dentro de terra indígena; as do Cerrado, do Pantanal e da transição do Mato Grosso, quase sempre de fazenda, ficam no tipo "Fora da floresta" (limite das ecorregiões RESOLVE 2017). Um modelo próprio, treinado com pistas e estradas, rios e ruas do OpenStreetMap, mede cada pista em seis bandas do Sentinel-2 e tira do mapa as que parecem estrada ou rio. Cada uma é conferida nas imagens Sentinel-2 de 2017 em diante (Copernicus, 10 m): o eixo da pista é medido e, ano a ano, quanto dele está limpo. Ano com imagem ruim (nuvem, sombra) é ignorado. Antes de 2017, a data vem da perda de floresta Hansen no eixo. "Sem registro" quer dizer que não achamos registro, não que a pista seja ilegal.</li>
             <li><b>Imagens:</b> Esri World Imagery; Sentinel-2 cloudless © EOX.</li>
             <li>O satélite vê a floresta caindo e a terra revirada, não a licença. Saber se é ilegal exige cruzar com autorizações, terras indígenas e unidades de conservação.</li>
