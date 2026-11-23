@@ -1,0 +1,46 @@
+name: Pistas apontadas no site
+
+# O botão "Apontar pista aqui" (ou "Não é pista") do mapa abre uma issue com as coordenadas.
+# Só vale issue de quem cuida do repositório; ela vira uma linha em pipeline/airstrip_reports.json,
+# dispara a conferência no Sentinel-2 e é fechada.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: airstrip-report
+  cancel-in-progress: false
+
+jobs:
+  add:
+    if: >-
+      (startsWith(github.event.issue.title, 'Pista apontada') || startsWith(github.event.issue.title, 'Não é pista')) &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Grava a pista
+        env:
+          TITLE: ${{ github.event.issue.title }}
+          BODY: ${{ github.event.issue.body }}
+          NUM: ${{ github.event.issue.number }}
+        run: DAY=$(date -u +%F) python3 scripts/airstrip_report.py
+      - name: Envia
+        run: |
+          git config user.name "amazon-sentry-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pipeline/airstrip_reports.json pipeline/airstrip_labels.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Pista apontada"
+          for i in 1 2 3; do git pull --rebase -q origin main && git push -q origin HEAD:main && break; sleep 5; done
+      - name: Confere no satélite e fecha a issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run data-airstrips.yml -f budget=60 || true
+          gh issue close ${{ github.event.issue.number }} --comment "Recebida. A conferência no Sentinel-2 já começou; o mapa atualiza em cerca de 20 minutos."

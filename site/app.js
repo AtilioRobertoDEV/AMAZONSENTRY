@@ -262,7 +262,8 @@ function onMapClick(e) {
     // por exemplo para apontar uma pista que o mapa ainda não marcou
     if (map.getZoom() >= 10) {
       new maplibregl.Popup({ maxWidth: '260px', className: 'geo-pop' }).setLngLat(e.lngLat)
-        .setHTML(`<h3>Ponto no mapa</h3>${geoRow(e.lngLat.lng, e.lngLat.lat)}`).addTo(map);
+        .setHTML(`<h3>Ponto no mapa</h3>${geoRow(e.lngLat.lng, e.lngLat.lat)}${reportLink('Pista apontada', e.lngLat.lng, e.lngLat.lat,
+          'Pista vista na imagem de satélite e que o mapa ainda não marca.', 'Apontar pista aqui')}`).addTo(map);
     }
     return;
   }
@@ -303,6 +304,16 @@ function geoRow(lng, lat) {
   return `<div class="geo"><span class="geo-ll">${ll}</span>
     <button type="button" class="geo-copy" data-ll="${ll}">Copiar</button>
     <a class="geo-maps" href="${url}" target="_blank" rel="noopener">Abrir no Google Maps</a></div>`;
+}
+
+// Apontar uma pista que falta (ou marcar um traço errado): abre uma issue no GitHub já
+// preenchida. A issue de quem cuida do site vira dado e dispara a conferência no satélite.
+const REPO = 'https://github.com/AtilioRobertoDEV/AMAZONSENTRY';
+function reportLink(kind, lng, lat, note, label, ends) {
+  const ll = `${(+lat).toFixed(5)}, ${(+lng).toFixed(5)}`;
+  const body = `${note}\n\nAberta pelo botão do mapa. Não mude o título.${ends ? `\n\neixo: ${JSON.stringify(ends)}` : ''}`;
+  const url = `${REPO}/issues/new?title=${encodeURIComponent(`${kind}: ${ll}`)}&body=${encodeURIComponent(body)}`;
+  return `<a class="geo-report" href="${url}" target="_blank" rel="noopener">${label}</a>`;
 }
 
 async function copyLL(b) {
@@ -619,7 +630,9 @@ function airPopup(i, ll) {
     ${r[A.PRIO] === 3 ? '<p>Fora da floresta amazônica e longe de garimpo: muitas pistas assim servem a fazendas.</p>' : ''}
     <p class="fine">${kind} Fonte da indicação: ${esc(srcs)}. Medida no Sentinel-2${r[A.P] != null ? `; nosso modelo dá ${Math.round(r[A.P] * 100)}% de chance de ser pista e não estrada ou rio` : ''}.</p>
     <button class="tl-open" data-kind="airstrip" data-lng="${r[A.LON]}" data-lat="${r[A.LAT]}">Ver a evolução por satélite</button>
-    ${geoRow(r[A.LON], r[A.LAT])}`;
+    ${geoRow(r[A.LON], r[A.LAT])}
+    ${reportLink('Não é pista', r[A.LON], r[A.LAT], 'O traço do mapa caiu numa estrada, rio, cava ou outra coisa que não é pista.',
+      'Não é pista? Avise', [[r[A.X1], r[A.Y1]], [r[A.X2], r[A.Y2]]])}`;
   new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(ll).setHTML(html).addTo(map);
 }
 

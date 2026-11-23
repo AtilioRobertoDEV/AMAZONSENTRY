@@ -311,6 +311,13 @@ footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--regua)
 .geo-maps { grid-column: 1 / -1; color: var(--tinta); font-weight: 650; }
 .geo-copy:focus-visible, .geo-maps:focus-visible { outline: 2px solid var(--tinta); outline-offset: 2px; }
 .geo-pop h3 + .geo { margin-top: 2px; border-top: 0; padding-top: 0; }
+/* apontar pista que falta / avisar traço errado: abre issue no GitHub */
+.geo-report {
+  display: inline-block; margin-top: 8px; font-size: 12px; font-weight: 650; color: #a3245c;
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px;
+}
+.geo-report:hover { color: #6e0f39; }
+.geo-report:focus-visible { outline: 2px solid var(--tinta); outline-offset: 2px; }
 #tl {
   position: absolute; left: var(--rail); right: 0; bottom: 0; z-index: 4;
   display: grid; grid-template-columns: 44px 1fr auto; gap: 16px; align-items: end;

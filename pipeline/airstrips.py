@@ -354,6 +354,12 @@ def from_reports():
     return cands, []
 
 
+def not_strips():
+    """Faixas marcadas no site como "não é pista": saem do mapa (raio de 300 m)."""
+    doc = json.loads(REPORTS.read_text()) if REPORTS.exists() else {}
+    return [(float(r["lon"]), float(r["lat"])) for r in doc.get("nao", [])]
+
+
 def from_mapbiomas():
     """Pistas do MapBiomas (registradas e não registradas). Hoje o link público
     responde 'acesso negado'; fica tentando e usa o que tiver em cache."""
@@ -1126,10 +1132,16 @@ def write_output(sites, items, this_year):
     mp = mining_points()
     rows = []
     counts = {}
+    nao = not_strips()
     for c in sites:
         r = items.get(key_of(c))
         if not r:
             continue
+        if nao and r.get("ends") and "apontada" not in c["srcs"]:
+            mx, my = (r["ends"][0][0] + r["ends"][1][0]) / 2, (r["ends"][0][1] + r["ends"][1][1]) / 2
+            if any(abs(mx - a) < 0.003 and abs(my - b) < 0.003 for a, b in nao):
+                counts["marcada como não pista"] = counts.get("marcada como não pista", 0) + 1
+                continue
         det = c["srcs"] == ["detector"]
         if det and not SHOW_DETECTOR:
             continue
