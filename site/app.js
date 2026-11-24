@@ -34,7 +34,7 @@ const TL_YEARS = Object.keys(EOX_YEARS).map(Number);
 
 const state = {
   mode: 'week', year: NOW_YEAR, cumulative: false, base: 'sat',
-  on: { deforestation: true, mining: true, airstrips: true },
+  on: { deforestation: true, mining: true, airstrips: true, enforcement: false },
   air: null, airZoom: null, airTypes: new Set(['0', 'regg']), airHover: null,
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
@@ -701,6 +701,7 @@ async function render() {
     if (seq !== state.renderSeq) return;
     LAYERS.forEach(drawLayer);
     drawAir();
+    ENF.draw();
     $('#loading').hidden = true;
     return;
   }
@@ -727,6 +728,7 @@ async function render() {
   writeLede();
   $('#loading').hidden = true;
   drawCharts();
+  ENF.draw();
 }
 
 // a frase que abre o painel resume o período em palavras
@@ -761,7 +763,7 @@ function writeLede() {
       : `<b>${fmtInt(air.total)}</b> pistas de pouso sem registro na Amazônia, <b>${fmtInt(used)}</b> em uso.`;
     s = on.deforestation || on.mining ? `${s} ${a}` : a;
   } else if (!on.deforestation && !on.mining) s = '';
-  if (!on.deforestation && !on.mining && !on.airstrips) s = 'Nenhuma camada ligada. Escolha abaixo o que mostrar.';
+  if (!on.deforestation && !on.mining && !on.airstrips) s = on.enforcement ? ENF.lede() : 'Nenhuma camada ligada. Escolha abaixo o que mostrar.';
   $('#lede').innerHTML = s;
 }
 
@@ -1367,8 +1369,8 @@ function syncURL() {
   if (state.mode !== 'week') q.set('modo', state.mode);
   if (state.tl) q.set('evolucao', `${state.tl.lng.toFixed(4)},${state.tl.lat.toFixed(4)}`);
   if (state.mode === 'history') q.set('ano', state.year);
-  const ver = ['deforestation', 'mining', 'airstrips'].filter((l) => state.on[l]);
-  if (ver.length < 3 && ver.length) q.set('ver', ver.map((l) => VER[l]).join(','));
+  const ver = Object.keys(VER).filter((l) => state.on[l]);
+  if (ver.length && (ver.length < 3 || state.on.enforcement)) q.set('ver', ver.map((l) => VER[l]).join(','));
   const tipos = [...state.airTypes].sort().join(',');
   if (tipos !== '0,regg') q.set('pistas', [...state.airTypes].sort().map((t) => (t === 'reg' ? 'anac' : t === 'regg' ? 'anac-garimpo' : t)).join(','));
   if (state.base === 'dark') q.set('fundo', 'mapa');
@@ -1494,7 +1496,7 @@ function showValue() {
   const on = ['deforestation', 'mining', 'airstrips'].filter((l) => state.on[l]);
   return on.length === 3 ? 'all' : on.length === 1 ? on[0] : '';
 }
-const VER = { deforestation: 'desmatamento', mining: 'garimpo', airstrips: 'pistas' };
+const VER = { deforestation: 'desmatamento', mining: 'garimpo', airstrips: 'pistas', enforcement: 'fiscalizacao' };
 
 function layersChanged() {
   $$('#show button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.show === showValue())));
@@ -1509,6 +1511,7 @@ function layersChanged() {
   if (state.mode === 'history' && state.year < a) { stopPlay(); setYear(a); }
   else { syncYearUI(); syncURL(); }
   if (state.tl) tlShow(state.tl.i);
+  ENF.draw();
 }
 
 function play() {

@@ -14,6 +14,7 @@ Nada de nome ou CPF/CNPJ sai daqui: só contagens agregadas.
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 import json
 import os
@@ -231,6 +232,40 @@ def gastos(months):
     return out
 
 
+def gaps(heat, last: int) -> dict | None:
+    """Garimpo novo (Amazon Mining Watch) sem nenhum auto ou embargo do Ibama a ~10 km, no mesmo período.
+
+    Período: de janeiro do ano anterior até o último mês com dados. Vizinhança: a célula de 0,1° e as 8 em volta.
+    """
+    p = DATA_DIR / "mining" / "detections.json"
+    if not p.exists():
+        print("  sem mining/detections.json: pulando")
+        return None
+    y0 = last // 100 - 1
+    det = json.loads(p.read_text())
+    d = det["data"]
+    mine = defaultdict(float)
+    for i in range(0, len(d), 5):
+        lon, lat, per, _st, ha = d[i:i + 5]
+        if per // 10 >= y0:
+            mine[(int((lon / 1000 - ORIGIN[0]) // CELL), int((lat / 1000 - ORIGIN[1]) // CELL))] += ha
+    enf = defaultdict(int)
+    for (x, y, t), (a, e, _g) in heat.items():
+        if t >= y0 * 100 + 1:
+            enf[(x, y)] += a + e
+    rows, far_ha = [], 0.0
+    for (x, y), ha in mine.items():
+        n = sum(enf.get((x + dx, y + dy), 0) for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+        if n == 0:
+            far_ha += ha
+        rows += [x, y, round(ha, 1), n]
+    tot = sum(mine.values()) or 1
+    print(f"  garimpo novo desde {y0}: {len(mine)} células, {far_ha / tot:.0%} da área sem fiscalização a 10 km")
+    return {"v": 1, "cell": CELL, "origin": list(ORIGIN), "since": y0 * 100 + 1, "until": last,
+            "fields": ["x", "y", "ha", "acoes_vizinhanca"], "far_share": round(far_ha / tot, 3),
+            "far_ha": round(far_ha), "total_ha": round(tot), "data": rows}
+
+
 def main() -> None:
     months = [y * 100 + m for y in range(Y0, Y1 + 1) for m in range(1, 13)]
     uf_m = defaultdict(blank)
@@ -251,6 +286,7 @@ def main() -> None:
     keys = ["autos", "garimpo", "multa", "embargos", "ha", "emb_garimpo"]
     out = {
         "v": 1,
+        "updated": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "months": months,
         "source": "Ibama (autos de infração e termos de embargo, dados abertos); "
                   "Portal da Transparência (execução da despesa)",
@@ -272,6 +308,9 @@ def main() -> None:
         tot = {k: sum(out["uf"][uf][k]) for k in keys}
         print(f"  {uf}: " + ", ".join(f"{k}={v:,.0f}" for k, v in tot.items()))
     print(f"  células x mês: {len(heat)}")
+    g = gaps(heat, months[-1])
+    if g:
+        (dest / "gaps.json").write_text(json.dumps(g, separators=(",", ":")))
 
 
 if __name__ == "__main__":

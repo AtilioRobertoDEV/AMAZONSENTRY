@@ -494,3 +494,20 @@ body.tl-on #timeline { display: none; }
 .maplibregl-popup-content ul.legal li.sem::before { background: #b3261e; }
 .maplibregl-popup-content ul.legal li.com::before { box-shadow: inset 0 0 0 1.5px var(--tinta); }
 .maplibregl-popup-content ul.legal li.area::before { background: var(--tinta); border-radius: 1px; }
+
+/* ------------------------------------------------------------- fiscalização (enforcement.js) */
+[data-layer="enforcement"] .sw { border-radius: 50%; background: radial-gradient(circle, #fff1de 0, #ffb27a 30%, #e2552b 62%, rgba(156, 47, 18, .25) 100%); }
+#enf-panel { padding: 4px 0 14px; border-bottom: 1px solid var(--regua); }
+#enf-panel h3 { margin: 16px 0 2px; font-size: 13.5px; font-weight: 700; font-stretch: 92%; }
+#enf-panel svg { display: block; margin-top: 6px; max-width: 100%; height: auto; overflow: visible; }
+#enf-panel svg text { font-size: 10.5px; fill: var(--tinta-2); font-family: inherit; }
+.enf-big { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; margin: 10px 0 4px; }
+.enf-big b { font-size: 44px; line-height: .86; font-weight: 820; font-stretch: 112%; letter-spacing: -.03em; color: #0c6f64; }
+.enf-big p { margin: 0; font-size: 13px; line-height: 1.38; }
+.enf-key { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--tinta-2); margin: 6px 0 0; }
+.enf-key .ring { flex: none; width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid #0f8f81; }
+#enf-ufs { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12.5px; }
+#enf-ufs li { display: grid; grid-template-columns: 26px 1fr 52px; align-items: center; gap: 8px; margin: 2px 0; }
+#enf-ufs b { font-weight: 700; }
+#enf-ufs i { display: block; height: 7px; background: #9c2f12; }
+#enf-ufs span { text-align: right; font-weight: 600; }

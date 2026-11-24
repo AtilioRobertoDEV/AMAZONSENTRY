@@ -1,6 +1,8 @@
 name: Dados · fiscalização (Ibama)
 
 on:
+  schedule:
+    - cron: "40 7 * * *"    # diário (o Ibama atualiza os dados abertos todo dia)
   push:
     branches: [main]
     paths: ["pipeline/enforcement.py", ".github/workflows/data-enforcement.yml"]
@@ -8,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: data-branch
@@ -31,3 +34,7 @@ jobs:
         run: python enforcement.py
       - run: ls -la data/enforcement
       - run: scripts/data-branch.sh publish "fiscalização $(date -u +%FT%TZ)"
+      - name: Publicar o site com os dados novos
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy.yml --ref main -R "${{ github.repository }}"
