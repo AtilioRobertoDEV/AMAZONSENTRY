@@ -40,13 +40,13 @@ import sentinel2 as S2  # noqa: E402
 CACHE = C.DATA_DIR / "_cache" / "airstrips"
 MODEL = Path(__file__).parent / "airstrip_model.json"
 LABELS = Path(__file__).parent / "airstrip_labels.json"   # achados do detector conferidos a olho
-HARD = {"estrada_detector", "garimpo", "pista_detector"}   # pesam mais no treino (são raros e difíceis)
+HARD = {"estrada_detector", "garimpo", "pista_detector", "pista_apontada", "pista_garimpo", "nao_pista_garimpo", "nao_pista_apontada"}   # pesam mais no treino (são raros e difíceis)
 HARD_W = 4.0
 BANDS = ("B02", "B03", "B04", "B08", "B11", "B12")
 ROADS = "trunk|primary|secondary|tertiary|unclassified|residential|track|service"
 WATERS = "river|canal|stream|ditch|drain"
 SKIP = {"len_m"}   # medidas que não entram no modelo (ver train)
-FEAT_V = 3   # suba quando mudar o jeito de medir (FEATURES ou measure)
+FEAT_V = 5   # suba quando mudar o jeito de medir (FEATURES ou measure)
 PAVED = {"asphalt", "paved", "concrete", "paving_stones", "sett", "chipseal"}
 
 
@@ -227,7 +227,13 @@ FEATURES = ["len_m", "width_k", "con_med", "con_iqr", "open_frac", "ext_lo", "ex
             "win_open", "win_ndvi_p10", "win_ndvi_p90", "lines_par",
             "w_ndvi_m", "w_swir_m", "w_cv", "edge_sharp", "ext_narrow", "ext_narrow_max", "ax_ndvi_cv",
             "cont_red_min", "cont_red_max", "cont_swir_min", "cont_swir_max", "cont_ndvi_min", "cont_ndvi_max",
-            "cont_far_ndvi_min", "cont_far_ndvi_max"]
+            "cont_far_ndvi_min", "cont_far_ndvi_max", "water_near", "side_open", "center_wander", "w_swir_cv"]
+# "foto" da faixa: recorte girado com a faixa deitada no meio (um quarto do comprimento de
+# folga em cada ponta, ±150 m de lado), dobrado nas duas direções (o lado e o sentido não
+# importam) e reduzido a 6 linhas x 12 colunas por canal.
+CHIP_CH = ("ndvi", "red", "swir", "mndwi")
+CHIP_R, CHIP_C = 6, 12
+FEATURES += [f"chip_{c}_{i}_{j}" for c in CHIP_CH for i in range(CHIP_R) for j in range(CHIP_C)]
 
 
 def measure(bands, v, th, y, a, b, k):
@@ -247,9 +253,10 @@ def measure(bands, v, th, y, a, b, k):
          "con_iqr": float(np.subtract(*np.percentile(seg, [75, 25]))), "open_frac": float((seg > 0.12).mean()),
          "ext_lo": min(e_lo, e_hi), "ext_hi": max(e_lo, e_hi), "ext_mean": (e_lo + e_hi) / 2,
          "br0_open": br[0][0], "br0_sect": br[0][1], "br1_open": br[1][0], "br1_sect": br[1][1]}
-    rot = {}
+    rot, rotb = {}, {}
     for name in BANDS:
         r = S2._rot(bands[name].astype("f4"), th)
+        rotb[name] = r
         ax = float(np.median(r[y - hw:y + hw + 1, a:b + 1]))
         sd = float(np.median(np.r_[r[y - s1:y - s0 + 1, a:b + 1].ravel(), r[y + s0:y + s1 + 1, a:b + 1].ravel()]))
         rot[name] = ax
@@ -275,6 +282,7 @@ def measure(bands, v, th, y, a, b, k):
         side = np.median(np.r_[prof[:6], prof[-6:]])
         mid = prof[15]
         half = (side + mid) / 2
+        width.wander = 5.0
         if side - mid <= 1e-6:
             return 0.0, 0.0, 0.0
         inside = prof < half
@@ -283,7 +291,7 @@ def measure(bands, v, th, y, a, b, k):
             i0 -= 1
         while i1 < 30 and inside[i1 + 1]:
             i1 += 1
-        w_all = []
+        w_all, ctr = [], []
         for col in range(0, prof_rows.shape[1], 5):   # largura em trechos, para ver se varia
             c = prof_rows[:, col]
             ins = c < half
@@ -296,12 +304,21 @@ def measure(bands, v, th, y, a, b, k):
             while j1 < 30 and ins[j1 + 1]:
                 j1 += 1
             w_all.append(j1 - j0 + 1)
+            ctr.append((j0 + j1) / 2)
         w_all = np.array(w_all, float)
         sharp = float(np.max(np.abs(np.diff(prof))) / max(side - mid, 1e-6))
+        width.wander = float(np.std(ctr)) if len(ctr) >= 3 else 5.0   # borda torta: cava, igarapé
         return (i1 - i0 + 1) * S2.PX, float(w_all.std() / max(w_all.mean(), 1e-6)), sharp
     f["w_ndvi_m"], f["w_cv"], f["edge_sharp"] = width(m, None)
+    f["center_wander"] = width.wander
     sw = S2._rot(bands["B11"].astype("f4"), th)
-    f["w_swir_m"] = width(-sw, None)[0]   # no SWIR o eixo é mais claro: inverte
+    f["w_swir_m"], f["w_swir_cv"], _ = width(-sw, None)   # no SWIR o eixo é mais claro: inverte
+    # cava de garimpo tem poça d'água do lado e chão aberto em volta; pista, não
+    gr = S2._rot(bands["B03"].astype("f4"), th)
+    box = (slice(max(0, y - 15), y + 16), slice(max(0, a - 10), min(L, b + 11)))
+    f["water_near"] = float((((gr - sw) / np.maximum(gr + sw, 1))[box] > 0).mean())
+    band_ = np.r_[m[max(0, y - 15):max(0, y - s1 - 2), a:b + 1].ravel(), m[y + s1 + 2:y + 16, a:b + 1].ravel()]
+    f["side_open"] = float((band_ < side_ndvi - 0.2).mean()) if band_.size else 0.0
     # continua além das pontas com uma faixa estreita (1 px)? estrada continua, pista acaba
     c0 = S2._contrast(m, *S2.SCALES[0])[y]
     e1 = float(np.median(c0[max(0, a - 40):max(1, a - 5)])) if a - 5 > 5 else 0.0
@@ -327,6 +344,21 @@ def measure(bands, v, th, y, a, b, k):
             f["cont_far_ndvi_min"], f["cont_far_ndvi_max"] = min(far), max(far)
     axv = m[y, a:b + 1]
     f["ax_ndvi_cv"] = float(np.std(axv) / max(abs(np.mean(axv)), 0.05))
+    g3, s3 = rotb["B03"], rotb["B11"]
+    chans = {"ndvi": S2._rot(vf, th), "red": rotb["B04"] / 10000, "swir": s3 / 10000,
+             "mndwi": (g3 - s3) / np.maximum(g3 + s3, 1)}
+    n_ = b - a + 1
+    cols = np.clip(np.round(np.linspace(a - n_ / 4, b + n_ / 4, 2 * CHIP_C)).astype(int), 0, L - 1)
+    rows = np.clip(np.arange(y - 15, y + 16, 3), 0, chans["ndvi"].shape[0] - 1)
+    for c in CHIP_CH:
+        img = chans[c]
+        blk = np.array([[float(np.mean(img[max(0, r_ - 1):r_ + 2, max(0, c_ - 1):c_ + 2])) for c_ in cols] for r_ in rows])
+        blk = (blk + blk[::-1]) / 2                 # dobra os lados
+        blk = (blk + blk[:, ::-1]) / 2              # dobra as pontas
+        blk = blk[:CHIP_R, :CHIP_C]
+        for i in range(CHIP_R):
+            for j in range(CHIP_C):
+                f[f"chip_{c}_{i}_{j}"] = blk[i, j]
     return [float(f[k_]) for k_ in FEATURES]
 
 
@@ -457,6 +489,9 @@ def predict(x):
         _model = json.loads(MODEL.read_text()) if MODEL.exists() else False
     if not _model or x is None:
         return None
+    if _model.get("features", FEATURES) != FEATURES:   # modelo treinado com outra lista: casa pelo nome
+        pos = {f: i for i, f in enumerate(FEATURES)}
+        x = [x[pos[f]] if f in pos else 0.0 for f in _model["features"]]
     x = [x[i] for i in _model.get("use", range(len(x)))]
     s = _model["init"]
     for left, right, feat, thr, val in _model["trees"]:

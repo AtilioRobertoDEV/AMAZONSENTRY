@@ -1,5 +1,5 @@
 {
-  "about": "Pistas apontadas por quem usa o site: coordenadas copiadas do popup (lat, lon). Cada uma passa pela conferência no Sentinel-2.",
+  "about": "Pistas apontadas por quem usa o site (src apontada) e achadas pela busca densa em volta dos garimpos e conferidas a olho (src busca). Cada uma passa pela conferência no Sentinel-2.",
   "items": [
     {
       "lat": -7.85689,
@@ -54,6 +54,69 @@
       "lon": -56.25734,
       "nome": "",
       "em": "2026-11-23"
+    },
+    {
+      "lat": -5.80872,
+      "lon": -56.44226,
+      "nome": "",
+      "em": "2026-11-23",
+      "src": "busca"
+    },
+    {
+      "lat": -7.83328,
+      "lon": -56.54016,
+      "nome": "",
+      "em": "2026-11-23",
+      "src": "busca"
+    },
+    {
+      "lat": -6.08338,
+      "lon": -56.29237,
+      "nome": "",
+      "em": "2026-11-23",
+      "src": "busca"
+    },
+    {
+      "lat": -7.44287,
+      "lon": -56.47884,
+      "nome": "",
+      "em": "2026-11-23",
+      "src": "busca"
+    },
+    {
+      "lat": -5.45423,
+      "lon": -57.45554,
+      "nome": "",
+      "em": "2026-11-23",
+      "src": "busca"
+    },
+    {
+      "lat": -7.15243,
+      "lon": -56.63914,
+      "nome": "",
+      "em": "2026-11-23",
+      "src": "busca"
+    },
+    {
+      "lat": -6.84282,
+      "lon": -56.58804,
+      "nome": "",
+      "em": "2026-11-23",
+      "src": "busca"
+    },
+    {
+      "lat": -6.3077,
+      "lon": -56.45768,
+      "nome": "",
+      "em": "2026-11-23",
+      "src": "busca"
+    },
+    {
+      "lat": -7.70187,
+      "lon": -56.41264,
+      "nome": "",
+      "em": "2026-11-23",
+      "src": "busca"
     }
   ]
 }

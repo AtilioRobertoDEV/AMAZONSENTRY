@@ -99,7 +99,7 @@ ANAC = ["https://sistemas.anac.gov.br/dadosabertos/Aerodromos/Aer%C3%B3dromos%20
 MAPBIOMAS = "https://storage.googleapis.com/mapbiomas-workspace/INFRASTRUCTURE/ORIGINALS/BRAZIL/WORKSPACE/"
 HANSEN = "https://storage.googleapis.com/earthenginepartners-hansen"
 
-SRC_BITS = {"osm": 1, "ourairports": 2, "mapbiomas": 4, "detector": 8, "apontada": 16}
+SRC_BITS = {"osm": 1, "ourairports": 2, "mapbiomas": 4, "detector": 8, "apontada": 16, "busca": 32}
 STATUS = {"ativa": 1, "perdendo uso": 2, "abandonada": 3, "reaberta": 4, "sem confirmação": 0}
 
 OPEN_T = 0.12       # contraste mínimo (lados - eixo) para o pixel do eixo contar como aberto
@@ -169,9 +169,11 @@ def from_ourairports():
         if not (BBOX[0] <= lon <= BBOX[2] and BBOX[1] <= lat <= BBOX[3]):
             continue
         codes = [r["ident"], r["gps_code"], r["icao_code"]]
-        registered = any(ANAC_CODE.match(c or "") for c in codes) or bool(r["local_code"].strip())
-        registered = registered or bool(r.get("iata_code", "").strip()) or r.get("scheduled_service") == "yes" \
+        code = next((c for c in codes if ANAC_CODE.match(c or "")), "")
+        # só código (sem linha aérea, IATA ou porte): confere depois no cadastro atual da ANAC
+        sure = bool(r.get("iata_code", "").strip()) or r.get("scheduled_service") == "yes" \
             or r["type"] in ("medium_airport", "large_airport")
+        registered = sure or ((bool(code) or bool(r["local_code"].strip())) and not code)
         kind = public_kind(r["name"], r.get("municipality", ""))
         if r["type"] == "heliport":
             continue
@@ -182,7 +184,7 @@ def from_ourairports():
             continue
         elif r["type"] in ("small_airport", "closed"):
             cands.append({"lon": lon, "lat": lat, "src": "ourairports", "name": r["name"], "cat": kind,
-                          "ends": runways.get(r["ident"]), "closed": r["type"] == "closed"})
+                          "ends": runways.get(r["ident"]), "closed": r["type"] == "closed", "code": code})
     print(f"  OurAirports: {len(cands)} candidatas, {len(reg)} registradas")
     return cands, reg
 
@@ -219,9 +221,9 @@ out tags geom;"""
     for el in doc.get("elements", []):
         t = el.get("tags", {})
         codes = [t.get("icao", ""), t.get("ref", ""), t.get("gps_code", "")]
-        registered = any(ANAC_CODE.match(c.strip().upper()) for c in codes if c)
-        registered = registered or bool(t.get("iata")) \
-            or t.get("aerodrome:type") in ("public", "regional", "international", "military")
+        code = next((c.strip().upper() for c in codes if c and ANAC_CODE.match(c.strip().upper())), "")
+        # só código: confere depois no cadastro atual da ANAC (ver coded_to_reg)
+        registered = bool(t.get("iata")) or t.get("aerodrome:type") in ("public", "regional", "international", "military")
         if t.get("aeroway") == "runway" and el.get("geometry"):
             g = el["geometry"]
             a, b = (g[0]["lon"], g[0]["lat"]), (g[-1]["lon"], g[-1]["lat"])
@@ -241,7 +243,7 @@ out tags geom;"""
         else:
             cands.append({"lon": lon, "lat": lat, "src": "osm", "name": t.get("name", ""), "ends": ends,
                           "cat": public_kind(t.get("name", ""), t.get("addr:city", "")),
-                          "closed": t.get("disused") == "yes" or "abandoned:aeroway" in t})
+                          "closed": t.get("disused") == "yes" or "abandoned:aeroway" in t, "code": code})
     print(f"  OSM: {len(cands)} candidatas, {len(reg)} registradas")
     return cands, reg
 
@@ -348,7 +350,8 @@ def from_reports():
     """Pistas apontadas por quem usa o site (coordenadas copiadas do popup). Passam pela
     mesma conferência no Sentinel-2 que as outras."""
     doc = json.loads(REPORTS.read_text()) if REPORTS.exists() else {}
-    cands = [{"lon": float(r["lon"]), "lat": float(r["lat"]), "src": "apontada", "name": r.get("nome", ""),
+    # src "busca": achada pela busca densa em volta dos garimpos e conferida a olho na imagem
+    cands = [{"lon": float(r["lon"]), "lat": float(r["lat"]), "src": r.get("src", "apontada"), "name": r.get("nome", ""),
               "ends": None, "closed": False} for r in doc.get("items", [])]
     print(f"  Apontadas: {len(cands)}")
     return cands, []
@@ -424,6 +427,7 @@ def merge(cands, reg, radius_m=900, reg_m=1500):
         c = dict(cands[i])
         c["srcs"] = sorted({cands[j]["src"] for j in group})
         c["names"] = sorted({cands[j]["name"] for j in group if cands[j]["name"]})[:2]
+        c["code"] = next((cands[j]["code"] for j in group if cands[j].get("code")), "")
         c["closed"] = any(cands[j]["closed"] for j in group)
         cats = {cands[j].get("cat") for j in group}
         c["cat"] = "aldeia" if "aldeia" in cats else "cidade" if "cidade" in cats else None
@@ -635,7 +639,7 @@ def analyze(c, years):
         return series[ys[i]]["open"] >= 0.8 and series[ys[i]]["con"] >= 0.3
     first_open = next((ys[i] for i in range(len(ys)) if opened(i)), None)
     if first_open is None:
-        if "apontada" in (c.get("srcs") or [c.get("src")]):
+        if {"apontada", "busca"} & set(c.get("srcs") or [c.get("src")]):
             # quem apontou viu a pista no satélite; mato tomando a faixa = perdendo uso
             res["status"] = "perdendo uso"
             res["why"] = "apontada, faixa tomada pelo mato"
@@ -895,6 +899,24 @@ def key_of(c):
     return f"{c['lon']:.4f},{c['lat']:.4f}"
 
 
+def coded_to_reg(cands, reg):
+    """Pista com código de aeródromo (SXXX) no OSM ou no OurAirports: se o código está no
+    cadastro atual da ANAC, é registrada. Se não está (registro cancelado, vencido ou nunca
+    feito), segue como candidata e o mapa avisa do código. Sem a lista da ANAC, vale o código."""
+    codes = {r["code"].strip().upper() for r in REGISTERED if r.get("code")}
+    keep, n_reg, n_old = [], 0, 0
+    for c in cands:
+        code = c.get("code")
+        if code and (not codes or code in codes):
+            reg.append((c["lon"], c["lat"]))
+            n_reg += 1
+            continue
+        n_old += bool(code)
+        keep.append(c)
+    print(f"  Código de aeródromo no OSM/OurAirports: {n_reg} no cadastro da ANAC, {n_old} fora dele (seguem como candidatas)")
+    return keep
+
+
 def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
     t0 = time.time()
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -911,6 +933,7 @@ def run(budget_min: float, workers: int, limit: int | None, scan_share: float):
             continue
         cands += c
         reg += r
+    cands = coded_to_reg(cands, reg)
     sites = merge(cands + found, reg)
     print(f"  {len(sites)} candidatas sem registro na Amazônia Legal ({len(reg)} pistas registradas como referência)")
     if not sites:
@@ -1202,7 +1225,7 @@ def write_output(sites, items, this_year):
         if det and not SHOW_DETECTOR:
             continue
         p = pista_chance(r)
-        told = "apontada" in c["srcs"]   # vista por quem usa o site: o modelo não tira
+        told = bool({"apontada", "busca"} & set(c["srcs"]))   # vista a olho na imagem: o modelo não tira
         if not told and (det and (p is None or p < P_DETECTOR) or p is not None and p < P_KEEP):
             if r.get("status") not in (None, "sem confirmação"):
                 counts["parece estrada ou rio"] = counts.get("parece estrada ou rio", 0) + 1
@@ -1238,6 +1261,7 @@ def write_output(sites, items, this_year):
             r["ends"][0][0], r["ends"][0][1], r["ends"][1][0], r["ends"][1][1],
             r["length"], born[0], born[1], STATUS[r["status"]], r.get("last"), r.get("closed_since"),
             km, src, s, (c["names"][0] if c.get("names") else "")[:60], cat, ti, prio, pista_chance(r),
+            c.get("code", ""),
         ])
     by_year = {}
     for row in data:
@@ -1262,10 +1286,10 @@ def write_output(sites, items, this_year):
         "first_year": S2.FIRST_YEAR,
         "fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "comprimento_m", "surgiu_depois_de", "surgiu_ate",
                    "situacao(1 ativa,2 perdendo uso,3 abandonada,4 reaberta)", "ultimo_ano_visto", "fechada_desde",
-                   "garimpo_km", "fontes(1 osm,2 ourairports,4 mapbiomas,8 detector,16 apontada)", "aberta_por_ano", "nome",
+                   "garimpo_km", "fontes(1 osm,2 ourairports,4 mapbiomas,8 detector,16 apontada,32 busca conferida a olho)", "aberta_por_ano", "nome",
                    "categoria(0 sem registro,1 aldeia,2 cidade ou vila)", "terra_indigena",
                    f"prioridade(1 garimpo a {NEAR_MINING_KM} km ou TI,2 floresta amazônica,3 Cerrado/Pantanal/transição)",
-                   "chance_de_ser_pista(modelo)"],
+                   "chance_de_ser_pista(modelo)", "codigo_fora_da_anac"],
         "reg_fields": ["lon", "lat", "lon1", "lat1", "lon2", "lat2", "publico", "nome", "codigo", "municipio_uf", "garimpo_km"],
         "counts": counts,
         "cats": cats,

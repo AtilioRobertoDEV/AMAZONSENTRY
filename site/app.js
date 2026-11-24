@@ -470,7 +470,7 @@ function periodLabel(p) {
 // ------------------------------------------------------------------ pistas de pouso sem registro
 // Cada linha: lon, lat, lon1, lat1, lon2, lat2, comprimento, surgiu depois de, surgiu até, situação,
 // último ano visto, fechada desde, km até garimpo, fontes, aberta por ano ("0"-"9" ou "-"), nome.
-const A = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, LEN: 6, B0: 7, B1: 8, ST: 9, LAST: 10, SHUT: 11, KM: 12, SRC: 13, SER: 14, NAME: 15, CAT: 16, TI: 17, PRIO: 18, P: 19 };
+const A = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, LEN: 6, B0: 7, B1: 8, ST: 9, LAST: 10, SHUT: 11, KM: 12, SRC: 13, SER: 14, NAME: 15, CAT: 16, TI: 17, PRIO: 18, P: 19, CODE: 20 };
 // registradas na ANAC: lon, lat, cabeceiras do OSM (ou null), pública, nome, código, município/UF
 const R = { LON: 0, LAT: 1, X1: 2, Y1: 3, X2: 4, Y2: 5, PUB: 6, NAME: 7, CODE: 8, PLACE: 9, KM: 10 };
 const regNear = (r) => !r[R.PUB] && r[R.KM] != null && r[R.KM] <= REG_NEAR_KM;   // privada; as públicas são aeroportos de cidade
@@ -609,7 +609,7 @@ function airYears(r, first) {
   }).join('')}</div>`;
 }
 
-const SRC_NAMES = [[1, 'OpenStreetMap'], [2, 'OurAirports'], [4, 'MapBiomas'], [8, 'detector do site'], [16, 'apontada por quem usa o site']];
+const SRC_NAMES = [[1, 'OpenStreetMap'], [2, 'OurAirports'], [4, 'MapBiomas'], [8, 'detector do site'], [16, 'apontada por quem usa o site'], [32, 'busca do site em volta dos garimpos, conferida a olho']];
 
 function airPopup(i, ll) {
   const doc = state.air, r = doc.data[i], first = doc.first_year || 2017;
@@ -643,6 +643,7 @@ function airPopup(i, ll) {
     ${ti ? `<p>Dentro da Terra Indígena <b>${esc(ti)}</b>.</p>` : ''}
     ${km != null ? `<p>${km < 1 ? 'Colada a um garimpo' : `Garimpo mais perto a ${nf.format(km)} km`}.</p>` : ''}
     ${r[A.PRIO] === 3 ? '<p>Fora da floresta amazônica e longe de garimpo: muitas pistas assim servem a fazendas.</p>' : ''}
+    ${r[A.CODE] ? `<p>Tem o código <b>${esc(r[A.CODE])}</b> no OpenStreetMap ou no OurAirports, mas não está no cadastro atual de aeródromos da ANAC (registro cancelado, vencido ou nunca feito).</p>` : ''}
     <p class="fine">${kind} Fonte da indicação: ${esc(srcs)}. Medida no Sentinel-2${r[A.P] != null ? `; nosso modelo dá ${Math.round(r[A.P] * 100)}% de chance de ser pista e não estrada ou rio` : ''}.</p>
     <button class="tl-open" data-kind="airstrip" data-lng="${r[A.LON]}" data-lat="${r[A.LAT]}">Ver a evolução por satélite</button>
     ${geoRow(r[A.LON], r[A.LAT])}
