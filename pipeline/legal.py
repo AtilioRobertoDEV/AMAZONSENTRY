@@ -2,7 +2,7 @@
 ANM (SIGMINE) e com terras indígenas e unidades de conservação.
 
 Fontes (todas guardadas na branch data; o site não consulta nenhuma na hora da visita):
-  - ANM SIGMINE, processos minerários por estado (shapefile, dados abertos);
+  - ANM SIGMINE, processos minerários por estado (serviço ArcGIS geo.anm.gov.br);
   - WDPA (Protected Planet, UNEP-WCMC), áreas protegidas do Brasil, inclusive terras
     indígenas; se não estiver disponível, terras indígenas da FUNAI (WFS).
 
@@ -31,13 +31,12 @@ import numpy as np
 import common as C
 
 UFS = ["AC", "AM", "AP", "MA", "MT", "PA", "RO", "RR", "TO"]   # bacia amazônica no Brasil
-SIGMINE = ["https://app.anm.gov.br/dadosabertos/SIGMINE/PROCESSOS_MINERARIOS/{uf}.zip",
-           "http://app.anm.gov.br/dadosabertos/SIGMINE/PROCESSOS_MINERARIOS/{uf}.zip"]
-# Serviço ArcGIS público da ANM com a mesma camada (processos ativos), paginado de 2000 em 2000.
+# Serviço ArcGIS público da ANM (processos ativos), paginado de 2000 em 2000. O download
+# de app.anm.gov.br/dadosabertos derruba a conexão até de dentro do Brasil, e o geo.anm.gov.br
+# não responde aos servidores do GitHub. Quando não der, vale o que estiver em _cache/sigmine:
+# {uf}.geojson (baixado do serviço por uma máquina no Brasil), {uf}.zip (shapefile original)
+# ou a versão enxuta {uf}.json já processada.
 SIGMINE_API = "https://geo.anm.gov.br/arcgis/rest/services/SIGMINE/dados_anm/FeatureServer/0/query"
-# A ANM recusa conexões de fora do Brasil (os servidores do GitHub ficam nos EUA). Quando
-# não der para baixar, vale o que estiver em _cache/sigmine: o zip original da ANM
-# ({uf}.zip, posto lá à mão ou por outra máquina) ou a versão enxuta já processada.
 WDPA = "https://d1gam3xoknrgr2.cloudfront.net/current/WDPA_WDOECM_{mon}{year}_Public_BRA_shp.zip"
 FUNAI_WFS = ("https://geoserver.funai.gov.br/geoserver/Funai/ows?service=WFS&version=1.0.0"
              "&request=GetFeature&typeName=Funai:tis_poligonais&outputFormat=application/json")
@@ -130,13 +129,6 @@ def run_sigmine(xy, tree, tmp: Path):
     hits, ok, when = {}, 0, []
     for uf in UFS:
         z = None
-        for url in SIGMINE:
-            try:
-                z = C.download(url.format(uf=uf), tmp / f"{uf}.zip", timeout=600, retries=2).read_bytes()
-                origem = "ANM (download)"
-                break
-            except Exception as e:  # noqa: BLE001
-                print(f"  ! SIGMINE {uf} indisponível em {url.split('/')[2]}: {str(e)[:120]}")
         raw, rawj = cdir / f"{uf}.zip", cdir / f"{uf}.geojson"
         feats = None
         if z is None:
@@ -193,7 +185,7 @@ def api_geojson(uf: str, dest: Path):
 
     feats, off = [], 0
     while True:
-        r = requests.get(SIGMINE_API, timeout=120, headers=C.UA, params={
+        r = requests.get(SIGMINE_API, timeout=(15, 120), headers=C.UA, params={
             "where": f"UF='{uf}'", "outFields": "OBJECTID,PROCESSO,FASE,UF,SUBS", "returnGeometry": "true",
             "outSR": 4326, "maxAllowableOffset": 0.0002, "geometryPrecision": 5, "f": "geojson",
             "orderByFields": "OBJECTID", "resultOffset": off, "resultRecordCount": 2000})
