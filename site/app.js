@@ -153,7 +153,8 @@ function heatRadius(cs, base) {
 
 // ------------------------------------------------------------------ mapa
 const RASTER = (tiles, attribution, maxzoom = 19) => ({ type: 'raster', tiles, tileSize: 256, attribution, maxzoom });
-const CARTO = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/">CARTO</a>';
+// mapa comum e relevo da Esri (a CARTO passou a exigir chave)
+const ESRI = (name) => `https://server.arcgisonline.com/ArcGIS/rest/services/${name}/MapServer/tile/{z}/{y}/{x}`;
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const map = new maplibregl.Map({
   container: 'map',
@@ -162,9 +163,9 @@ const map = new maplibregl.Map({
   style: {
     version: 8,
     sources: {
-      mapa: RASTER(['a', 'b', 'c', 'd'].map((s) => `https://${s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png`), CARTO, 18),
-      'relevo-base': RASTER(['a', 'b', 'c', 'd'].map((s) => `https://${s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}@2x.png`), CARTO, 18),
-      'relevo-rotulos': RASTER(['a', 'b', 'c', 'd'].map((s) => `https://${s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}@2x.png`), CARTO, 18),
+      mapa: RASTER([ESRI('World_Street_Map')], 'Mapa © Esri, HERE, Garmin, OpenStreetMap', 19),
+      'relevo-base': RASTER([ESRI('World_Terrain_Base')], 'Relevo © Esri, USGS, NOAA', 13),
+      'relevo-rotulos': RASTER([ESRI('Reference/World_Reference_Overlay')], '', 13),
       dem: { type: 'raster-dem', encoding: 'terrarium', tileSize: 256, maxzoom: 14,
         tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
         attribution: 'Relevo: <a href="https://registry.opendata.aws/terrain-tiles/">Terrain Tiles</a> (AWS, Mapzen)' },
@@ -212,8 +213,8 @@ function outlineOpacity() {
 const HEAT = {
   dark: {
     deforestation: ['interpolate', ['linear'], ['heatmap-density'],
-      0, 'rgba(243,195,74,0)', 0.03, 'rgba(206,92,18,0.5)', 0.15, 'rgba(232,130,26,0.74)',
-      0.4, 'rgba(243,186,60,0.9)', 0.7, 'rgba(255,212,104,0.95)', 1, 'rgba(255,232,160,0.97)'],
+      0, 'rgba(243,195,74,0)', 0.03, 'rgba(206,92,18,0.26)', 0.12, 'rgba(222,112,22,0.46)', 0.25, 'rgba(236,140,30,0.66)',
+      0.45, 'rgba(243,186,60,0.88)', 0.7, 'rgba(255,212,104,0.95)', 1, 'rgba(255,232,160,0.97)'],
     mining: ['interpolate', ['linear'], ['heatmap-density'],
       0, 'rgba(31,200,180,0)', 0.03, 'rgba(12,132,118,0.5)', 0.15, 'rgba(22,176,158,0.76)',
       0.4, 'rgba(31,200,180,0.92)', 0.7, 'rgba(92,228,206,0.95)', 1, 'rgba(168,246,232,0.97)'],
@@ -275,7 +276,7 @@ function addDataLayers() {
   // de longe, mancha de calor; de perto, a área real
   map.addLayer({ id: 'heat-deforestation', type: 'heatmap', source: 'src-deforestation-heat',
     paint: { 'heatmap-weight': HEAT_W, 'heatmap-color': HEAT.dark.deforestation,
-      'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 3, 0.3, 5, 0.4, 7, 0.7, 9, 1.1] } });
+      'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 3, 0.24, 5, 0.34, 7, 0.6, 9, 1] } });
   map.addLayer({ id: 'lyr-deforestation', type: 'fill', source: 'src-deforestation', minzoom: NEAR.deforestation - 1.2,
     paint: { 'fill-color': COLOR.deforestation, 'fill-antialias': false } });
   map.addLayer({ id: 'heat-mining', type: 'heatmap', source: 'src-mining-heat', maxzoom: NEAR.mining + 1.2,
