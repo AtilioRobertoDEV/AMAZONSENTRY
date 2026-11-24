@@ -1,5 +1,5 @@
 /* Amazon Sentry: o painel é a água barrenta do Solimões, o mapa é o Rio Negro.
- * Terra que muda = quadrados (área). Previsão = contorno vazado. Pista de pouso = traço na direção da pista. */
+ * Terra que muda = mancha de calor (de perto, a área real). Previsão = contorno vazado. Pista = traço na direção da pista. */
 
 @font-face {
   font-family: "Archivo";
@@ -68,79 +68,11 @@ button { font: inherit; color: inherit; }
 #sheet-handle { display: none; }
 #rail > * { flex-shrink: 0; }
 
-#brand { padding: 28px 28px 18px; }
-#brand h1 {
-  margin: 0; font-size: 48px; line-height: .86; letter-spacing: -.015em;
-  font-weight: 860; font-stretch: 125%; color: var(--tinta);
-}
-#brand p { margin: 12px 0 0; max-width: 30ch; color: var(--tinta-2); font-size: 14px; }
-
-#modes {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
-  margin: 0 28px; border-top: 1.5px solid var(--tinta); border-bottom: 1.5px solid var(--tinta);
-}
-#modes button {
-  appearance: none; background: none; border: 0; cursor: pointer;
-  padding: 9px 4px 8px; font-size: 14px; font-weight: 560; font-stretch: 88%;
-  border-right: 1px solid var(--regua); text-align: left; padding-left: 10px;
-  transition: background .15s var(--ease), color .15s var(--ease);
-}
-#modes button:nth-child(3n) { border-right: 0; }
-#modes button:nth-child(-n+3) { border-bottom: 1px solid var(--regua); }
-#modes button:hover { background: rgba(42, 30, 18, .07); }
-#modes button[aria-pressed="true"] { background: var(--tinta); color: var(--solimoes); }
-#modes .radar-tab { font-weight: 720; }
-#modes .radar-tab::before {
-  content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: 0;
-  border: 1.5px solid currentColor; border-radius: 50%;
-}
-
-#rail-body { padding: 0 28px 28px; display: flex; flex-direction: column; }
-
-#lede {
-  margin: 20px 0 18px; font-size: 18px; line-height: 1.32; font-weight: 450; max-width: 32ch;
-  text-wrap: pretty;
-}
-#lede b { font-weight: 720; }
-
-h2 { margin: 0 0 8px; font-size: 14px; font-weight: 700; font-stretch: 88%; }
 .fine { font-size: 12px; color: var(--tinta-2); margin: 6px 0 0; }
 
-/* camadas: cada linha é um botão liga/desliga */
-#observed { border-top: 1px solid var(--regua); }
-.layer {
-  appearance: none; background: none; border: 0; width: 100%; cursor: pointer; text-align: left;
-  display: grid; grid-template-columns: 22px 1fr auto; grid-template-areas: "sw name num" ". note note";
-  align-items: baseline; column-gap: 8px; row-gap: 1px;
-  padding: 11px 0 10px; border-bottom: 1px solid var(--regua);
-}
-.layer .sw { grid-area: sw; width: 13px; height: 13px; align-self: center; }
-.layer .name { grid-area: name; font-weight: 620; font-stretch: 92%; }
-.layer .num { grid-area: num; font-size: 24px; line-height: 1; font-weight: 680; font-stretch: 112%; letter-spacing: -.01em; }
-.layer .num small { font-size: 13px; font-weight: 520; font-stretch: 100%; margin-left: 3px; letter-spacing: 0; }
-.layer .note { grid-area: note; font-size: 12px; color: var(--tinta-2); }
-.layer[aria-pressed="false"] .name, .layer[aria-pressed="false"] .num { opacity: .38; }
-.layer[aria-pressed="false"] .sw { background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--tinta-2); }
-.layer:hover .name { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
-
-.sw { display: inline-block; }
-[data-layer="deforestation"] .sw { background: var(--laterita); box-shadow: inset 0 0 0 1px rgba(42, 30, 18, .35); }
-[data-layer="mining"] .sw { background: var(--rejeito); }
-.sw.ring { width: 13px; height: 13px; background: transparent; border: 2.5px solid; }
-.sw.ring.def { border-color: #b98a12; }
-.sw.ring.min { border-color: #0f8f81; }
-.sw.dot.front { border-radius: 50%; background: var(--tinta); }
-.layer.small { grid-template-areas: "sw name name"; padding: 8px 0; }
-.layer.small .name { font-weight: 560; }
-
-.check { display: flex; gap: 8px; align-items: center; font-size: 13px; padding: 10px 0 0; cursor: pointer; }
-.check input { accent-color: var(--tinta); margin: 0; }
 
 /* radar */
-#radar-intro { margin: 0 0 10px; font-size: 14px; color: var(--tinta-2); }
-#radar-intro b { color: var(--tinta); font-weight: 650; }
-.radar-layers { border-top: 1px solid var(--regua); }
-.radar-layers .layer { border-bottom: 1px solid var(--regua); }
+
 #fronts-key { list-style: none; margin: 8px 0 18px; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; font-size: 12px; color: var(--tinta-2); }
 #fronts-key li { display: flex; gap: 6px; align-items: center; }
 #fronts-key i { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px rgba(42, 30, 18, .45); }
@@ -184,12 +116,6 @@ details summary::marker { color: var(--tinta-2); }
 .chart rect { cursor: pointer; }
 .chart rect.sel { fill: var(--tinta) !important; opacity: 1 !important; }
 #charts .axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--tinta-2); margin-top: 2px; }
-
-#base { margin-top: 18px; }
-.seg { display: flex; border: 1.5px solid var(--tinta); }
-.seg button { flex: 1; appearance: none; background: none; border: 0; border-right: 1px solid var(--regua); padding: 7px 4px; cursor: pointer; font-size: 13px; font-weight: 560; font-stretch: 90%; }
-.seg button:last-child { border-right: 0; }
-.seg button[aria-pressed="true"] { background: var(--tinta); color: var(--solimoes); }
 
 footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--regua); }
 
@@ -271,16 +197,16 @@ footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--regua)
     background: var(--solimoes);
   }
   #sheet-handle .grip { display: block; width: 44px; height: 4px; margin: 0 auto; border-radius: 2px; background: var(--tinta-2); }
-  #brand { padding: 0 20px 12px; display: flex; align-items: baseline; gap: 12px; }
-  #brand h1 { font-size: 26px; }
-  #brand h1 br { display: none; }
-  #brand p { display: none; }
-  #modes { margin: 0 20px; grid-template-columns: repeat(6, auto); overflow-x: auto; scrollbar-width: none; }
-  #modes button { padding: 8px 6px; font-size: 13px; text-align: center; border-bottom: 0 !important; }
-  #modes button:nth-child(3n) { border-right: 1px solid var(--regua); }
-  #modes .radar-tab::before { display: none; }
-  #rail-body { padding: 0 20px 24px; }
-  #lede { font-size: 16px; margin: 14px 0 12px; }
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
   #timeline { left: 14px; right: 14px; bottom: calc(150px + 14px); grid-template-columns: 36px 1fr auto; }
   #year-label { font-size: 40px; }
   #loading { left: 14px; top: 14px; }
@@ -350,39 +276,17 @@ footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--regua)
 }
 body.tl-on #timeline { display: none; }
 
-/* cinco períodos: Radar IA ocupa o resto da segunda linha */
-#modes .radar-tab { grid-column: span 2; border-right: 0; }
-#modes button:nth-child(-n+3) { border-bottom: 1px solid var(--regua); }
 
 @media (max-width: 760px) {
-  #modes { grid-template-columns: repeat(5, auto); }
-  #modes .radar-tab { grid-column: auto; }
+  
+  
   #tl { left: 0; right: 0; bottom: 150px; padding: 50px 14px 14px; grid-template-columns: 40px 1fr; }
   #tl-close { grid-column: 1 / -1; justify-self: end; order: -1; }
   #tl-year { font-size: 44px; }
   #tl-note { font-size: 13px; }
 }
 
-/* ------------------------------------------------------------- mostrar: desmatamento, garimpo ou os dois */
-.show { padding: 12px 0 12px; border-bottom: 1px solid var(--regua); }
-.show-label { display: block; font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; font-stretch: 90%; color: var(--tinta-2); margin-bottom: 6px; }
-#show button[data-show="deforestation"]::before, #show button[data-show="mining"]::before {
-  content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: 0;
-}
-#show button[data-show="deforestation"]::before { background: var(--laterita); box-shadow: inset 0 0 0 1px rgba(42, 30, 18, .35); }
-#show button[data-show="mining"]::before { background: var(--rejeito); }
 
-/* imagem de satélite de cada ano */
-.chips { display: grid; grid-template-columns: repeat(5, 1fr); border: 1.5px solid var(--tinta); }
-.chips button {
-  appearance: none; background: none; border: 0; cursor: pointer; padding: 7px 2px; font-size: 13px; font-weight: 600;
-  border-right: 1px solid var(--regua); border-bottom: 1px solid var(--regua);
-}
-.chips button:nth-child(5n) { border-right: 0; }
-.chips button:nth-last-child(-n+2) { border-bottom: 0; }
-.chips button.wide { grid-column: span 4; font-weight: 560; font-stretch: 90%; color: var(--tinta-2); }
-.chips button:hover { background: rgba(42, 30, 18, .07); }
-.chips button[aria-pressed="true"] { background: var(--tinta); color: var(--solimoes); }
 
 /* selo no mapa: qual imagem está por baixo, com setas para trocar o ano */
 #img-badge {
@@ -409,20 +313,8 @@ body.tl-on #timeline { display: none; }
   #loading { top: 80px; }
 }
 
-.chips button:disabled { text-decoration: line-through; opacity: .38; cursor: not-allowed; background: none; }
-
 /* ------------------------------------------------------------- pistas de pouso sem registro
  * O traço é a própria pista: cheio em uso, tracejado quando a vegetação tomou conta. */
-[data-layer="airstrips"] .sw {
-  height: 4px; width: 15px; align-self: center; background: var(--pista);
-  transform: rotate(-32deg); box-shadow: 0 0 0 1px rgba(42, 30, 18, .55);
-}
-.layer[data-layer="airstrips"][aria-pressed="false"] .sw { box-shadow: inset 0 0 0 1px var(--tinta-2); }
-#show button[data-show="airstrips"]::before {
-  content: ""; display: inline-block; width: 11px; height: 3px; margin-right: 6px; vertical-align: 3px;
-  background: var(--pista); transform: rotate(-32deg);
-}
-#show button { flex: 1 1 auto; white-space: nowrap; font-size: 12.5px; padding-left: 6px; padding-right: 6px; }
 
 #air-key {
   list-style: none; margin: 0; padding: 8px 0 10px 30px; border-bottom: 1px solid var(--regua);
@@ -479,20 +371,8 @@ body.tl-on #timeline { display: none; }
 }
 .air-years em { font-style: normal; font-size: 9.5px; color: var(--tinta-2); }
 
-/* garimpo e autorização */
-#legal-opt { padding-top: 10px; }
-#legal button { font-size: 12.5px; line-height: 1.2; padding: 7px 4px; }
-#legal-note { margin-top: 8px; }
-/* legenda do mapa de autorização: as mesmas marcas que o mapa desenha, em tinta */
-#legal-key { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 5px; font-size: 12px; color: var(--tinta-2); line-height: 1.3; }
-#legal-key li { display: grid; grid-template-columns: 16px 1fr; gap: 7px; align-items: start; }
-#legal-key i { width: 14px; height: 11px; margin-top: 1px; box-sizing: border-box; }
-#legal-key .k-sem { background: var(--rejeito); box-shadow: inset 0 0 0 1px #0c6f64; }
-#legal-key .k-com { border: 1.5px solid #0c6f64; }
-#legal-key .k-lavra { background: rgba(42, 30, 18, .14); border: 1.5px solid var(--tinta); }
-#legal-key .k-pedido { border: 1.5px dashed var(--tinta-2); }
-#legal-key .k-proibido { border: 2px dashed #c2410c; background: rgba(194, 65, 12, .08); }
-#legal-zoom { margin-top: 8px; }
+
+
 .maplibregl-popup-content ul.legal { list-style: none; padding: 0; margin: 8px 0 0; }
 .maplibregl-popup-content ul.legal li { padding: 3px 0 3px 14px; position: relative; border-top: 1px solid var(--regua); }
 .maplibregl-popup-content ul.legal li::before { content: ""; position: absolute; left: 0; top: 9px; width: 8px; height: 8px; border-radius: 50%; }
@@ -506,7 +386,7 @@ body.tl-on #timeline { display: none; }
 .maplibregl-popup-content p.proibido { margin: 8px 0 0; padding-left: 12px; border-left: 3px dashed #c2410c; font-size: 12.5px; }
 
 /* ------------------------------------------------------------- fiscalização (enforcement.js) */
-[data-layer="enforcement"] .sw { border-radius: 50%; background: radial-gradient(circle, #fff1de 0, #ffb27a 30%, #e2552b 62%, rgba(156, 47, 18, .25) 100%); }
+
 #enf-panel { padding: 4px 0 14px; border-bottom: 1px solid var(--regua); }
 #enf-panel h3 { margin: 16px 0 2px; font-size: 13.5px; font-weight: 700; font-stretch: 92%; }
 #enf-panel svg { display: block; margin-top: 6px; max-width: 100%; height: auto; overflow: visible; }
@@ -521,3 +401,153 @@ body.tl-on #timeline { display: none; }
 #enf-ufs b { font-weight: 700; }
 #enf-ufs i { display: block; height: 7px; background: #9c2f12; }
 #enf-ufs span { text-align: right; font-weight: 600; }
+
+/* ------------------------------------------------------------- painel: blocos, controles e camadas
+ * Cada bloco abre com uma régua de tinta e um título curto. Os controles são trilhos com o
+ * item escolhido em tinta; cada camada tem um ícone na cor que ela tem no mapa e um interruptor. */
+#brand { padding: 26px 28px 22px; }
+#brand h1 { margin: 0; font-size: 44px; line-height: .86; letter-spacing: -.015em; font-weight: 860; font-stretch: 125%; color: var(--tinta); }
+#brand p { margin: 10px 0 0; max-width: 31ch; color: var(--tinta-2); font-size: 13.5px; line-height: 1.4; }
+#rail-body { padding: 0 28px 28px; display: flex; flex-direction: column; }
+
+.block { padding: 14px 0 18px; border-top: 1.5px solid var(--tinta); }
+h2 { margin: 0 0 10px; font-size: 13px; font-weight: 740; font-stretch: 100%; letter-spacing: .01em; }
+.sub { display: block; font-size: 12px; font-weight: 640; color: var(--tinta-2); margin: 14px 0 6px; }
+
+/* trilho com o item escolhido em tinta */
+.seg { display: flex; gap: 2px; padding: 3px; background: rgba(42, 30, 18, .11); border-radius: 7px; }
+.seg button {
+  flex: 1 1 0; min-width: 0; appearance: none; border: 0; background: none; border-radius: 5px; cursor: pointer;
+  padding: 7px 2px; font-size: 13px; font-weight: 620; font-stretch: 90%; color: var(--tinta); white-space: nowrap;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.seg button:hover { background: rgba(42, 30, 18, .1); }
+.seg button[aria-pressed="true"] { background: var(--tinta); color: var(--solimoes); box-shadow: 0 1px 2px rgba(27, 20, 15, .3); }
+.seg button:focus-visible { outline-offset: -2px; }
+.seg svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#basemap button { padding: 8px 2px; }
+#legal button { font-size: 12.5px; }
+#legal button:first-child { flex-grow: .62; }
+body[data-mode="radar"] #modes { opacity: .55; }
+
+#lede { margin: 16px 0 0; font-size: 18px; line-height: 1.34; font-weight: 450; max-width: 32ch; text-wrap: pretty; }
+#lede b { font-weight: 720; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; padding: 10px 0 0; cursor: pointer; }
+.check input { accent-color: var(--tinta); margin: 0; }
+
+/* camadas */
+#observed { padding-bottom: 6px; }
+.lrow { border-top: 1px solid var(--regua); }
+.lrow:first-of-type { border-top: 0; }
+.layer {
+  appearance: none; background: none; border: 0; width: 100%; cursor: pointer; text-align: left; color: var(--tinta);
+  display: grid; grid-template-columns: 38px 1fr auto; grid-template-areas: "ico name tog" "ico num num" "ico note note";
+  column-gap: 12px; align-items: center; padding: 12px 0 11px;
+}
+.layer .ico {
+  grid-area: ico; align-self: start; width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--c); color: var(--tinta); box-shadow: inset 0 0 0 1px rgba(42, 30, 18, .22);
+  transition: background .15s var(--ease), color .15s var(--ease);
+}
+.layer .ico svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.layer .name { grid-area: name; font-size: 15px; font-weight: 700; font-stretch: 95%; line-height: 1.2; }
+.layer .num { grid-area: num; margin-top: 3px; font-size: 22px; line-height: 1.05; font-weight: 740; font-stretch: 108%; letter-spacing: -.01em; }
+.layer .num small { font-size: 12.5px; font-weight: 560; margin-left: 4px; letter-spacing: 0; font-stretch: 100%; color: var(--tinta-2); }
+.layer .note { grid-area: note; margin-top: 2px; font-size: 12px; line-height: 1.35; color: var(--tinta-2); }
+.layer .tog {
+  grid-area: tog; position: relative; width: 34px; height: 20px; border-radius: 10px; background: rgba(42, 30, 18, .24);
+  transition: background .15s var(--ease);
+}
+.layer .tog::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--solimoes); box-shadow: 0 1px 2px rgba(27, 20, 15, .35); transition: transform .15s var(--ease);
+}
+.layer[aria-pressed="true"] .tog { background: var(--tinta); }
+.layer[aria-pressed="true"] .tog::after { transform: translateX(14px); }
+.layer[aria-pressed="false"] .ico { background: transparent; color: var(--tinta-2); box-shadow: inset 0 0 0 1.5px rgba(42, 30, 18, .3); }
+.layer[aria-pressed="false"] .name, .layer[aria-pressed="false"] .num { opacity: .45; }
+.layer:hover .tog { background: rgba(42, 30, 18, .4); }
+.layer[aria-pressed="true"]:hover .tog { background: #000; }
+.layer:focus-visible { outline-offset: 4px; }
+[data-layer="deforestation"] { --c: var(--laterita); }
+[data-layer="mining"] { --c: var(--rejeito); }
+[data-layer="airstrips"] { --c: var(--pista); }
+[data-layer="enforcement"] { --c: #f07a52; }
+
+/* escala da mancha de calor, com as mesmas cores do mapa */
+.ramp { margin: -3px 0 12px 50px; display: grid; grid-template-columns: 1fr auto; font-size: 11px; color: var(--tinta-2); }
+.ramp i { grid-column: 1 / -1; height: 7px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(42, 30, 18, .18); }
+.ramp span:last-child { text-align: right; }
+[data-row="deforestation"] .ramp i { background: linear-gradient(90deg, rgba(201, 120, 20, .35), #e6962a 35%, var(--laterita) 65%, #fff0be); }
+[data-row="mining"] .ramp i { background: linear-gradient(90deg, rgba(14, 140, 126, .4), #19b4a2 35%, var(--rejeito) 65%, #c8fff4); }
+.layer[aria-pressed="false"] + .ramp { display: none; }
+
+/* o que fica embaixo de uma camada ligada */
+.subp { margin: 0 0 14px 50px; }
+.subp .sub { margin-top: 0; }
+#legal button { font-size: 12.5px; }
+#legal-note { margin-top: 8px; }
+#legal-key { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 5px; font-size: 12px; color: var(--tinta-2); line-height: 1.3; }
+#legal-key li { display: grid; grid-template-columns: 16px 1fr; gap: 8px; align-items: start; }
+#legal-key i { width: 14px; height: 11px; margin-top: 1px; box-sizing: border-box; border-radius: 1px; }
+#legal-key .k-sem { background: var(--rejeito); box-shadow: inset 0 0 0 1px #0c6f64; }
+#legal-key .k-com { border: 1.5px solid #0c6f64; }
+#legal-key .k-lavra { background: rgba(42, 30, 18, .14); border: 1.5px solid var(--tinta); }
+#legal-key .k-pedido { border: 1.5px dotted var(--tinta-2); }
+#legal-key .k-proibido { border: 2px dashed #c2410c; background: rgba(194, 65, 12, .08); }
+#legal-zoom { margin-top: 8px; }
+#air-types { padding: 0 0 6px 50px; }
+#air-key { padding: 4px 0 14px 50px; border-bottom: 0; }
+#enf-panel { border-bottom: 0; padding-top: 0; }
+
+/* fundo do mapa e imagem de cada ano */
+.chips { display: grid; grid-template-columns: repeat(9, 1fr); gap: 2px; padding: 3px; background: rgba(42, 30, 18, .11); border-radius: 7px; }
+.chips button {
+  appearance: none; border: 0; background: none; border-radius: 5px; cursor: pointer; padding: 6px 0;
+  font-size: 12px; font-weight: 640; font-stretch: 84%; color: var(--tinta);
+}
+.chips button:hover { background: rgba(42, 30, 18, .1); }
+.chips button[aria-pressed="true"] { background: var(--tinta); color: var(--solimoes); }
+.chips button:disabled { text-decoration: line-through; opacity: .38; cursor: not-allowed; background: none; }
+#sat-years .fine { margin-top: 8px; }
+
+/* radar: uma previsão, separada do que os satélites já viram */
+#radar-card { border-top: 0; padding-top: 4px; }
+.rc {
+  background: var(--tinta); color: var(--solimoes); border-radius: 10px; padding: 16px 16px 14px;
+  display: grid; grid-template-columns: 40px 1fr; column-gap: 12px; align-items: start;
+}
+.rc .ico { grid-row: span 2; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: var(--rejeito); box-shadow: inset 0 0 0 1.5px rgba(214, 190, 147, .3); }
+.rc .ico svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.rc h2 { margin: 1px 0 3px; color: var(--clarao); font-size: 15px; }
+.rc p { margin: 0; font-size: 13px; line-height: 1.42; color: rgba(214, 190, 147, .88); }
+.rc button {
+  grid-column: 1 / -1; margin-top: 14px; appearance: none; border: 0; border-radius: 6px; cursor: pointer;
+  background: var(--solimoes); color: var(--tinta); font-weight: 720; font-size: 13.5px; padding: 9px 12px;
+}
+.rc button:hover { background: var(--clarao); }
+.rc button:focus-visible { outline: 2px solid var(--clarao); outline-offset: 2px; }
+body[data-mode="radar"] .rc button { background: transparent; color: var(--clarao); box-shadow: inset 0 0 0 1.5px rgba(255, 243, 223, .6); }
+#radar { border-top: 0; padding-top: 0; }
+#radar-intro { margin: 0 0 10px; font-size: 14px; color: var(--tinta-2); }
+#radar-intro b { color: var(--tinta); font-weight: 650; }
+.radar-layers { border-top: 1px solid var(--regua); }
+.rl {
+  appearance: none; background: none; border: 0; border-bottom: 1px solid var(--regua); width: 100%; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 10px; padding: 9px 0; font-weight: 600; font-size: 14px; color: var(--tinta);
+}
+.rl[aria-pressed="false"] { opacity: .45; }
+.sw { display: inline-block; flex: none; width: 13px; height: 13px; }
+.sw.ring { background: transparent; border: 2.5px solid; }
+.sw.ring.def { border-color: #b98a12; }
+.sw.ring.min { border-color: #0f8f81; }
+.sw.dot.front { border-radius: 50%; background: var(--tinta); }
+
+@media (max-width: 760px) {
+  #brand { padding: 0 20px 12px; display: flex; align-items: baseline; gap: 12px; }
+  #brand h1 { font-size: 26px; }
+  #brand h1 br, #brand p { display: none; }
+  #rail-body { padding: 0 20px 24px; }
+  #lede { font-size: 16px; }
+}

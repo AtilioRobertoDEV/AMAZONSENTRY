@@ -20,48 +20,52 @@
 
     <header id="brand">
       <h1>Amazon <br>Sentry</h1>
-      <p>Floresta perdida, garimpo novo e pistas de pouso sem registro, vistos por satélite.</p>
+      <p>Floresta perdida, garimpo novo e pistas de pouso sem registro na Amazônia, vistos por satélite.</p>
     </header>
 
-    <nav id="modes" aria-label="Período">
-      <button data-mode="week" aria-pressed="true">7 dias</button>
-      <button data-mode="month" aria-pressed="false">30 dias</button>
-      <button data-mode="year" aria-pressed="false">Este ano</button>
-      <button data-mode="history" aria-pressed="false">Histórico</button>
-      <button data-mode="radar" aria-pressed="false" class="radar-tab">Radar IA</button>
-    </nav>
-
     <div id="rail-body">
-      <p id="lede" aria-live="polite">Carregando dados…</p>
+      <section class="block" id="period-block" aria-labelledby="period-h">
+        <h2 id="period-h">Período</h2>
+        <div class="seg" id="modes" role="group" aria-labelledby="period-h">
+          <button data-mode="week" aria-pressed="true">7 dias</button>
+          <button data-mode="month" aria-pressed="false">30 dias</button>
+          <button data-mode="quarter" aria-pressed="false">90 dias</button>
+          <button data-mode="year" aria-pressed="false">Este ano</button>
+          <button data-mode="history" aria-pressed="false" title="Todo o período, com a régua ano a ano">Tudo</button>
+        </div>
+        <label class="check" id="cumulative-opt" hidden>
+          <input type="checkbox" id="cumulative" checked> Somar os anos até o escolhido na régua
+        </label>
+        <p id="lede" aria-live="polite">Carregando dados…</p>
+      </section>
 
       <!-- observação: o que os satélites viram -->
-      <section id="observed" aria-label="Camadas">
-        <div class="show">
-          <span class="show-label" id="show-label">Mostrar no mapa</span>
-          <div class="seg" id="show" role="group" aria-labelledby="show-label">
-            <button data-show="all" aria-pressed="true">Tudo</button>
-            <button data-show="deforestation" aria-pressed="false">Desmatamento</button>
-            <button data-show="mining" aria-pressed="false">Garimpo</button>
-            <button data-show="airstrips" aria-pressed="false">Pistas</button>
-          </div>
+      <section class="block" id="observed" aria-labelledby="layers-h">
+        <h2 id="layers-h">Camadas</h2>
+        <div class="lrow" data-row="deforestation">
+          <button class="layer" data-layer="deforestation" aria-pressed="true">
+            <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2c-2.6 0-4.7 2.1-4.7 4.7 0 .4 0 .8.1 1.2a3.4 3.4 0 0 0 1.3 6.5h6.6a3.4 3.4 0 0 0 1.3-6.5c.1-.4.1-.8.1-1.2 0-2.6-2.1-4.7-4.7-4.7z"/><path d="M12 15.6v5.2M8.2 20.8h7.6"/><path d="M3.6 3.6l16.8 16.8"/></svg></span>
+            <span class="name">Floresta perdida</span>
+            <span class="tog" aria-hidden="true"></span>
+            <span class="num" data-total>–</span>
+            <span class="note" data-note></span>
+          </button>
+          <div class="ramp" aria-hidden="true"><i></i><span>pouco</span><span>muito</span></div>
         </div>
-        <button class="layer" data-layer="deforestation" aria-pressed="true">
-          <span class="sw" aria-hidden="true"></span>
-          <span class="name">Floresta perdida</span>
-          <span class="num" data-total>–</span>
-          <span class="note" data-note></span>
-        </button>
-        <button class="layer" data-layer="mining" aria-pressed="true">
-          <span class="sw" aria-hidden="true"></span>
-          <span class="name">Garimpo novo</span>
-          <span class="num" data-total>–</span>
-          <span class="note" data-note></span>
-        </button>
-        <div class="show" id="legal-opt" hidden>
-          <span class="show-label" id="legal-label">Autorização de lavra na ANM</span>
+        <div class="lrow" data-row="mining">
+          <button class="layer" data-layer="mining" aria-pressed="true">
+            <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.6 9.4L4.2 19.8"/><path d="M8.6 4.3c4.3-1.4 8.6-.5 11.1 2.4 1.7 2 2.3 4.6 1.8 7.4"/><path d="M12.8 6.8l4.4 4.4"/></svg></span>
+            <span class="name">Garimpo novo</span>
+            <span class="tog" aria-hidden="true"></span>
+            <span class="num" data-total>–</span>
+            <span class="note" data-note></span>
+          </button>
+          <div class="ramp" aria-hidden="true"><i></i><span>pouco</span><span>muito</span></div>
+        <div class="subp" id="legal-opt" hidden>
+          <span class="sub" id="legal-label">Autorização de lavra na ANM</span>
           <div class="seg" id="legal" role="group" aria-labelledby="legal-label">
-            <button data-legal="all" aria-pressed="true">Todo garimpo</button>
-            <button data-legal="sem" aria-pressed="false">Sem autorização</button>
+            <button data-legal="all" aria-pressed="true">Todos</button>
+            <button data-legal="sem" aria-pressed="false" title="Sem autorização de lavra">Sem autorização</button>
             <button data-legal="com" aria-pressed="false">Com autorização</button>
           </div>
           <p class="fine" id="legal-note"></p>
@@ -74,20 +78,26 @@
           </ul>
           <p class="fine" id="legal-zoom">Aproxime o mapa para ver as áreas da ANM e o quadro de cada garimpo.</p>
         </div>
-        <button class="layer" data-layer="airstrips" aria-pressed="true">
-          <span class="sw" aria-hidden="true"></span>
-          <span class="name">Pistas sem registro</span>
-          <span class="num" data-total>–</span>
-          <span class="note" data-note></span>
-        </button>
+        </div>
+        <div class="lrow" data-row="airstrips">
+          <button class="layer" data-layer="airstrips" aria-pressed="true">
+            <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6c.8 0 1.4.7 1.4 1.5v5.2l7.1 4.3v1.9l-7.1-2.3v4.4l2.3 1.8v1.5L12 20l-3.7.9v-1.5l2.3-1.8v-4.4l-7.1 2.3v-1.9l7.1-4.3V4.1c0-.8.6-1.5 1.4-1.5z"/></svg></span>
+            <span class="name">Pistas sem registro</span>
+            <span class="tog" aria-hidden="true"></span>
+            <span class="num" data-total>–</span>
+            <span class="note" data-note></span>
+          </button>
         <div id="air-types" role="group" aria-label="Tipos de pista no mapa" hidden></div>
         <ul id="air-key" aria-label="Situação das pistas"></ul>
-        <button class="layer" data-layer="enforcement" aria-pressed="false">
-          <span class="sw" aria-hidden="true"></span>
-          <span class="name">Fiscalização do Ibama</span>
-          <span class="num" data-total>–</span>
-          <span class="note" data-note>autos de infração e embargos, como mancha de calor</span>
-        </button>
+        </div>
+        <div class="lrow" data-row="enforcement">
+          <button class="layer" data-layer="enforcement" aria-pressed="false">
+            <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l7.4 2.9v5.6c0 4.6-3.1 8.4-7.4 9.9-4.3-1.5-7.4-5.3-7.4-9.9V5.7z"/><path d="M8.6 12.1l2.4 2.4 4.6-4.7"/></svg></span>
+            <span class="name">Fiscalização do Ibama</span>
+            <span class="tog" aria-hidden="true"></span>
+            <span class="num" data-total>–</span>
+            <span class="note" data-note></span>
+          </button>
         <div id="enf-panel" hidden>
           <div id="enf-gapstat" class="enf-big" hidden><b id="enf-far"></b><p id="enf-far-txt"></p></div>
           <p class="enf-key"><i class="ring" aria-hidden="true"></i>No mapa, os anéis claros marcam esse garimpo sem fiscalização por perto.</p>
@@ -104,22 +114,28 @@
           </div>
           <p class="fine">Fontes: Ibama (autos de infração e termos de embargo, dados abertos, atualizados todo dia) e Portal da Transparência. Não inclui operações da Polícia Federal, das Forças Armadas nem dos estados, que não publicam a localização.</p>
         </div>
-        <label class="check" id="cumulative-opt" hidden>
-          <input type="checkbox" id="cumulative"> Somar todos os anos até o escolhido
-        </label>
+        </div>
       </section>
 
-      <!-- radar: o que o modelo espera -->
-      <section id="radar" aria-label="Radar IA" hidden>
+      <!-- radar: outra coisa, uma previsão -->
+      <section class="block" id="radar-card" aria-labelledby="radar-h">
+        <div class="rc">
+          <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.6"/><circle cx="12" cy="12" r="4.6"/><path d="M12 12l6.1-6.1"/><circle cx="15.6" cy="15.2" r="1.1" fill="currentColor" stroke="none"/></svg></span>
+          <h2 id="radar-h">Radar IA</h2>
+          <p id="radar-pitch">Previsão de onde a floresta deve cair e o garimpo deve surgir no próximo ano, feita por um modelo treinado com a série histórica.</p>
+          <button id="radar-go" aria-pressed="false">Abrir o radar</button>
+        </div>
+      </section>
+      <section class="block" id="radar" aria-label="Radar IA" hidden>
         <p id="radar-intro"></p>
         <div class="radar-layers">
-          <button class="layer small" data-radar="risk_def" aria-pressed="true">
+          <button class="rl" data-radar="risk_def" aria-pressed="true">
             <span class="sw ring def" aria-hidden="true"></span><span class="name">Chance de desmatamento forte</span>
           </button>
-          <button class="layer small" data-radar="risk_min" aria-pressed="true">
+          <button class="rl" data-radar="risk_min" aria-pressed="true">
             <span class="sw ring min" aria-hidden="true"></span><span class="name">Chance de garimpo novo</span>
           </button>
-          <button class="layer small" data-radar="fronts" aria-pressed="true">
+          <button class="rl" data-radar="fronts" aria-pressed="true">
             <span class="sw dot front" aria-hidden="true"></span><span class="name" id="fronts-name">Aberturas recentes</span>
           </button>
         </div>
@@ -132,13 +148,22 @@
         </details>
       </section>
 
-      <section id="base" aria-label="Imagem de satélite">
-        <h2>Imagem de satélite de cada ano</h2>
-        <div id="imgs" class="chips" role="group" aria-label="Ano da imagem"></div>
-        <p id="base-note" class="fine"></p>
+
+      <section class="block" id="base" aria-labelledby="base-h">
+        <h2 id="base-h">Fundo do mapa</h2>
+        <div class="seg" id="basemap" role="group" aria-labelledby="base-h">
+          <button data-base="sat" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.2" y="4.2" width="17.6" height="15.6" rx="2"/><path d="M3.4 16.4l5-5 4.1 4.1 2.9-2.9 5.2 5.2"/><circle cx="15.8" cy="8.8" r="1.6"/></svg>Satélite</button>
+          <button data-base="mapa" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4.2L3.4 6.4v13.4L9 17.6l6 2.2 5.6-2.2V4.2L15 6.4z"/><path d="M9 4.2v13.4M15 6.4v13.4"/></svg>Mapa</button>
+          <button data-base="relevo" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.8 19.6l6.4-11 3.9 6.4 2.6-3.7 5.5 8.3z"/><path d="M7.6 11.4l1.6 1.4 1.4-1.3"/></svg>Relevo</button>
+        </div>
+        <div id="sat-years">
+          <span class="sub" id="imgs-h">Imagem de satélite do ano</span>
+          <div id="imgs" class="chips" role="group" aria-labelledby="imgs-h"></div>
+          <p id="base-note" class="fine"></p>
+        </div>
       </section>
 
-      <section id="trend" aria-label="Série anual">
+      <section class="block" id="trend" aria-label="Série anual">
         <h2 id="trend-title">Ano a ano</h2>
         <div id="charts"></div>
       </section>
