@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 90
     env:
       SENTRY_DATA_DIR: ${{ github.workspace }}/data
-      ENF_CACHE: ${{ runner.temp }}/enf
+      ENF_CACHE: /tmp/enf
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
