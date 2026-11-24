@@ -41,6 +41,7 @@ WDPA = "https://d1gam3xoknrgr2.cloudfront.net/current/WDPA_WDOECM_{mon}{year}_Pu
 FUNAI_WFS = ("https://geoserver.funai.gov.br/geoserver/Funai/ows?service=WFS&version=1.0.0"
              "&request=GetFeature&typeName=Funai:tis_poligonais&outputFormat=application/json")
 
+SEM_TITULAR = {"DISPONIBILIDADE", "APTO PARA DISPONIBILIDADE", "DADO NAO CADASTRADO"}
 LAVRA = {"CONCESSAO DE LAVRA", "LAVRA GARIMPEIRA", "LICENCIAMENTO", "REGISTRO DE EXTRACAO"}
 INTEGRAL = ("PARQUE", "ESTACAO ECOLOGICA", "RESERVA BIOLOGICA", "MONUMENTO NATURAL",
             "REFUGIO DE VIDA SILVESTRE")
@@ -83,7 +84,7 @@ def shapes_in_zip(zbytes: bytes):
             yield sr.shape, dict(zip(fields, sr.record))
 
 
-def hit_polygons(xy, tree, shp_iter, classify):
+def hit_polygons(xy, tree, shp_iter, classify, keep=None):
     """Para cada feição cuja caixa envolve alguma detecção, testa ponto no polígono.
     classify(props) -> (valor, nome) ou None. Devolve {indice_detecção: (valor, nome)}
     ficando com o maior valor quando há sobreposição."""
@@ -110,6 +111,8 @@ def hit_polygons(xy, tree, shp_iter, classify):
         except Exception as e:  # noqa: BLE001
             print(f"    ! geometria ilegível: {e}")
             continue
+        if keep is not None and len(inside):
+            keep.append((geom, props, c))
         for i in inside:
             if i not in out or c[0] > out[i][0]:
                 out[int(i)] = c
@@ -122,11 +125,13 @@ def run_sigmine(xy, tree, tmp: Path):
         fase = norm(p.get("FASE") or p.get("fase"))
         if not fase:
             return None
+        if fase in SEM_TITULAR:      # área livre na ANM: não há pedido de ninguém
+            return (0, fase)
         return (2 if fase in LAVRA else 1, fase)
 
     cdir = C.DATA_DIR / "_cache" / "sigmine"
     cdir.mkdir(parents=True, exist_ok=True)
-    hits, ok, when = {}, 0, []
+    hits, ok, when, keep = {}, 0, [], []
     for uf in UFS:
         z = None
         raw, rawj = cdir / f"{uf}.zip", cdir / f"{uf}.geojson"
@@ -159,7 +164,7 @@ def run_sigmine(xy, tree, tmp: Path):
         else:
             print(f"  ! SIGMINE {uf}: sem dados")
             continue
-        h, n = hit_polygons(xy, tree, shp_iter, classify)
+        h, n = hit_polygons(xy, tree, shp_iter, classify, keep)
         print(f"  SIGMINE {uf} ({origem}): {n} processos sobre detecções, {len(h)} detecções com processo")
         for i, v in h.items():
             if i not in hits or v[0] > hits[i][0]:
@@ -167,7 +172,54 @@ def run_sigmine(xy, tree, tmp: Path):
         ok += 1
         if stamp:
             when.append(stamp)
+    if ok == len(UFS):
+        write_anm(keep)
     return hits, ok, (min(when) if when else None)
+
+
+def _round(g, nd=4):
+    if isinstance(g, (list, tuple)):
+        if g and isinstance(g[0], (int, float)):
+            return [round(v, nd) for v in g[:2]]
+        return [_round(v, nd) for v in g]
+    return g
+
+
+def _feature(geom, tol, props):
+    from shapely.geometry import mapping, MultiPolygon
+    g = geom.simplify(tol, preserve_topology=True)
+    if g.geom_type == "GeometryCollection":      # make_valid pode devolver linhas soltas junto
+        polys = [p for p in getattr(g, "geoms", []) if p.geom_type in ("Polygon", "MultiPolygon")]
+        g = MultiPolygon([q for p in polys for q in getattr(p, "geoms", [p])])
+    if g.is_empty:
+        return None
+    m = mapping(g)
+    return {"type": "Feature", "properties": props, "geometry": {"type": m["type"], "coordinates": _round(m["coordinates"])}}
+
+
+def pretty(s) -> str:
+    s = " ".join(str(s or "").split())
+    return s[:1].upper() + s[1:].lower() if s.isupper() else s
+
+
+def write_anm(keep):
+    """Polígonos dos processos da ANM que têm garimpo detectado dentro, para o mapa."""
+    feats, seen = [], set()
+    for geom, props, c in keep:
+        if c[0] < 1:
+            continue
+        proc = str(props.get("PROCESSO") or "").strip()
+        k = proc or id(geom)
+        if k in seen:
+            continue
+        seen.add(k)
+        f = _feature(geom, 0.0003, {"t": c[0], "f": pretty(props.get("FASE")), "p": proc, "s": pretty(props.get("SUBS"))})
+        if f:
+            feats.append(f)
+    feats.sort(key=lambda f: f["properties"]["t"])     # lavra por cima
+    C.write_json(C.DATA_DIR / "mining" / "anm.json", {"type": "FeatureCollection", "updated": C.now_iso(),
+                                                       "fonte": "ANM SIGMINE", "features": feats})
+    print(f"  mapa: {len(feats)} processos da ANM com garimpo dentro")
 
 
 class _Shp:
@@ -216,7 +268,7 @@ def geojson_iter(path: Path):
 
 def compact_iter(path: Path):
     for f in (C.read_json(path, {}) or {}).get("f", []):
-        yield _Shp(f["g"]), {"FASE": f["fase"]}
+        yield _Shp(f["g"]), {"FASE": f["fase"], "PROCESSO": f.get("p", ""), "SUBS": f.get("s", "")}
 
 
 def keep_compact(path: Path, xy, tree, feats):
@@ -234,7 +286,8 @@ def keep_compact(path: Path, xy, tree, feats):
             g = to_geom(shp.__geo_interface__).simplify(0.0002)
         except Exception:  # noqa: BLE001
             continue
-        out.append({"fase": norm(props.get("FASE") or props.get("fase")), "g": mapping(g)})
+        out.append({"fase": str(props.get("FASE") or props.get("fase") or ""), "p": str(props.get("PROCESSO") or ""),
+                    "s": str(props.get("SUBS") or ""), "g": mapping(g)})
     C.write_json(path, {"f": out})
     print(f"    guardados {len(out)} processos perto de garimpo")
 
@@ -275,9 +328,9 @@ def run_protected(xy, tree, tmp: Path):
         return (1, ("US", nome))
 
     z = wdpa_bytes(tmp)
-    hits, fonte = {}, None
+    hits, fonte, keep = {}, None, []
     if z:
-        hits, n = hit_polygons(xy, tree, shapes_in_zip(z), classify_wdpa)
+        hits, n = hit_polygons(xy, tree, shapes_in_zip(z), classify_wdpa, keep)
         fonte = "WDPA (Protected Planet, UNEP-WCMC)"
         print(f"  WDPA: {n} áreas sobre detecções, {len(hits)} detecções dentro")
     has_ti = any(v[1][0] == "TI" for v in hits.values())
@@ -296,12 +349,25 @@ def run_protected(xy, tree, tmp: Path):
                 nome = "Terra Indígena " + str((f.get("properties") or {}).get("terrai_nom") or "").strip().title()
                 for i in inside:
                     hits[int(i)] = (3, ("TI", nome))
+                if len(inside):
+                    keep.append((g, {}, (3, ("TI", nome))))
                 n += bool(len(inside))
             fonte = (fonte + " e " if fonte else "") + "FUNAI (terras indígenas)"
             print(f"  FUNAI: {n} terras indígenas com detecções")
         except Exception as e:  # noqa: BLE001
             print(f"  ! FUNAI indisponível: {e}")
     code = {"TI": 1, "PI": 2, "US": 3}
+    if fonte:
+        # terras indígenas e UCs de proteção integral com garimpo dentro, para o mapa
+        feats = []
+        for geom, _, c in keep:
+            if c[1][0] in ("TI", "PI"):
+                f = _feature(geom, 0.002, {"a": code[c[1][0]], "n": c[1][1]})
+                if f:
+                    feats.append(f)
+        C.write_json(C.DATA_DIR / "mining" / "areas.json", {"type": "FeatureCollection", "updated": C.now_iso(),
+                                                             "fonte": fonte, "features": feats})
+        print(f"  mapa: {len(feats)} terras indígenas e UCs de proteção integral com garimpo dentro")
     out = {i: (code[v[1][0]], name_idx(v[1][1])) for i, v in hits.items()}
     return out, names, fonte
 

@@ -481,19 +481,29 @@ body.tl-on #timeline { display: none; }
 
 /* garimpo e autorização */
 #legal-opt { padding-top: 10px; }
-#legal button { font-size: 12.5px; }
-#legal button[data-legal="sem"]::before, #legal button[data-legal="com"]::before {
-  content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 50%; vertical-align: 0;
-}
-#legal button[data-legal="sem"]::before { background: #b3261e; }
-#legal button[data-legal="com"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+#legal button { font-size: 12.5px; line-height: 1.2; padding: 7px 4px; }
 #legal-note { margin-top: 8px; }
+/* legenda do mapa de autorização: as mesmas marcas que o mapa desenha, em tinta */
+#legal-key { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 5px; font-size: 12px; color: var(--tinta-2); line-height: 1.3; }
+#legal-key li { display: grid; grid-template-columns: 16px 1fr; gap: 7px; align-items: start; }
+#legal-key i { width: 14px; height: 11px; margin-top: 1px; box-sizing: border-box; }
+#legal-key .k-sem { background: var(--rejeito); box-shadow: inset 0 0 0 1px #0c6f64; }
+#legal-key .k-com { border: 1.5px solid #0c6f64; }
+#legal-key .k-lavra { background: rgba(42, 30, 18, .14); border: 1.5px solid var(--tinta); }
+#legal-key .k-pedido { border: 1.5px dashed var(--tinta-2); }
+#legal-key .k-proibido { border: 2px dashed #c2410c; background: rgba(194, 65, 12, .08); }
+#legal-zoom { margin-top: 8px; }
 .maplibregl-popup-content ul.legal { list-style: none; padding: 0; margin: 8px 0 0; }
 .maplibregl-popup-content ul.legal li { padding: 3px 0 3px 14px; position: relative; border-top: 1px solid var(--regua); }
 .maplibregl-popup-content ul.legal li::before { content: ""; position: absolute; left: 0; top: 9px; width: 8px; height: 8px; border-radius: 50%; }
-.maplibregl-popup-content ul.legal li.sem::before { background: #b3261e; }
-.maplibregl-popup-content ul.legal li.com::before { box-shadow: inset 0 0 0 1.5px var(--tinta); }
-.maplibregl-popup-content ul.legal li.area::before { background: var(--tinta); border-radius: 1px; }
+.maplibregl-popup-content ul.legal li.sem::before { background: var(--rejeito); border-radius: 1px; box-shadow: inset 0 0 0 1px #0c6f64; }
+.maplibregl-popup-content ul.legal li.com::before { border-radius: 1px; box-shadow: inset 0 0 0 1.5px #0c6f64; }
+.maplibregl-popup-content ul.legal li.area::before { border-radius: 1px; box-shadow: inset 0 0 0 1.5px #c2410c; }
+.maplibregl-popup-content ul.anm { list-style: none; padding: 0; margin: 8px 0 0; }
+.maplibregl-popup-content ul.anm li { padding: 5px 0 5px 12px; border-left: 3px solid var(--tinta); margin-top: 4px; font-size: 12.5px; line-height: 1.35; }
+.maplibregl-popup-content ul.anm li.pedido { border-left-style: dashed; border-left-color: var(--tinta-2); }
+.maplibregl-popup-content ul.anm li span { color: var(--tinta-2); font-size: 11.5px; }
+.maplibregl-popup-content p.proibido { margin: 8px 0 0; padding-left: 12px; border-left: 3px dashed #c2410c; font-size: 12.5px; }
 
 /* ------------------------------------------------------------- fiscalização (enforcement.js) */
 [data-layer="enforcement"] .sw { border-radius: 50%; background: radial-gradient(circle, #fff1de 0, #ffb27a 30%, #e2552b 62%, rgba(156, 47, 18, .25) 100%); }

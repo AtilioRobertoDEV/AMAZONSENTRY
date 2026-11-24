@@ -1,9 +1,10 @@
 /* Amazon Sentry: floresta perdida e garimpo novo no Brasil, com o Radar IA.
  * Sem build: MapLibre GL (vendor/) + JSON gerado pelo pipeline em data/.
  *
- * Gramática visual: terra que muda = quadrado (área); previsão = contorno vazado; pista de pouso = traço
- * na direção real da pista (cheio se em uso, tracejado se abandonada). As células são reagregadas conforme o
- * zoom para que nenhum quadrado fique menor que alguns pixels.
+ * Gramática visual: terra que muda = mancha de calor de longe e a área real de perto (célula do dado
+ * ou o quadro de cada garimpo); previsão = contorno vazado; pista de pouso = traço na direção real da
+ * pista (cheio se em uso, tracejado se abandonada). Garimpo de perto: cheio sem lavra autorizada,
+ * vazado com lavra autorizada; as áreas da ANM e as terras indígenas e UCs aparecem como contornos.
  */
 'use strict';
 
@@ -12,6 +13,7 @@ const DAY_MS = 86400000;
 const NOW_YEAR = new Date().getUTCFullYear();
 const LAYERS = ['deforestation', 'mining'];   // ordem de desenho
 const COLOR = { deforestation: '#f3c34a', mining: '#1fc8b4', airstrips: '#ff5fa2', clarao: '#fff3df', negro: '#1b140f',
+  lavra: '#f4ead2', proibido: '#ff8a6b',
   aldeia: '#c4a3ff', cidade: '#8cc3ea', anac: '#e9e1d0', anacg: '#ffb25c' };
 const REG_NEAR_KM = 5;    // registrada "perto de garimpo": privada a até 5 km de garimpo detectado
 // tipos de pista: 0 sem registro (suspeita), 1 aldeia, 2 cidade ou vila (as três conferidas no Sentinel-2) e as registradas na ANAC
@@ -39,7 +41,7 @@ const state = {
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
   playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
-  imgYear: null, follow: true, badYears: new Map(), legal: 'all',
+  imgYear: null, follow: true, badYears: new Map(), legal: 'all', nearDrawn: {},
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -97,35 +99,55 @@ function percentile(arr, p) {
   return s[Math.min(s.length - 1, Math.floor(p * s.length))];
 }
 
-// menor célula (graus) que ainda ocupa `px` pixels no zoom atual
 const pxPerDeg = (z) => (256 * 2 ** z) / 360;
-function factorFor(cs, px) {
-  return Math.max(1, Math.ceil(px / pxPerDeg(map.getZoom()) / cs));
-}
+const NEAR = { deforestation: 9.5, mining: 9 };     // zoom em que a mancha dá lugar à área real
 
-/** Células -> GeoJSON (quadrados ou pontos), reagregadas por `f`. */
-function toFeatures(cells, layer, f, shape) {
-  const agg = new Map();
-  for (const c of cells.list) {
-    const x = Math.floor(c.x / f), y = Math.floor(c.y / f);
-    const k = x * 100000 + y;
-    const cur = agg.get(k);
-    if (cur) cur.v += c.v; else agg.set(k, { x, y, v: c.v });
-  }
-  const vals = [...agg.values()];
-  const ref = percentile(vals.map((c) => c.v), 0.97) || 1;
-  const cs = cells.cs * f;
+/** Células ou detecções -> pontos da mancha de calor (peso 0..1 pelo percentil 97). */
+function heatPoints(r, l) {
   const feats = [];
-  for (const c of vals) {
-    if (c.v < ref * 0.08) continue;           // ruído visual fora do desenho (mas dentro do total)
-    const x0 = cells.ox + c.x * cs, y0 = cells.oy + c.y * cs;
-    const props = { layer, v: c.v, w: Math.min(1, c.v / ref), cs, x0, y0 };
-    const geometry = shape === 'square'
-      ? { type: 'Polygon', coordinates: [[[x0, y0], [x0 + cs, y0], [x0 + cs, y0 + cs], [x0, y0 + cs], [x0, y0]]] }
-      : { type: 'Point', coordinates: [x0 + cs / 2, y0 + cs / 2] };
-    feats.push({ type: 'Feature', geometry, properties: props });
+  if (l === 'mining') {
+    const ref = percentile(r.shown.map((it) => it.v), 0.97) || 1;
+    for (const it of r.shown) {
+      feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [it.x, it.y] }, properties: { w: Math.min(1, it.v / ref) } });
+    }
+    return feats;
+  }
+  const c = r.cells;
+  const ref = percentile(c.list.map((q) => q.v), 0.97) || 1;
+  for (const q of c.list) {
+    const x = c.ox + (q.x + 0.5) * c.cs, y = c.oy + (q.y + 0.5) * c.cs;
+    feats.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [x, y] }, properties: { w: Math.min(1, q.v / ref) } });
   }
   return feats;
+}
+
+/** De perto: o quadro de cada garimpo (lado pela área) ou a célula de desmatamento. */
+function nearFeatures(r, l) {
+  const feats = [];
+  const sq = (x0, y0, x1, y1) => ({ type: 'Polygon', coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] });
+  if (l === 'mining') {
+    for (const it of r.shown) {
+      const h = Math.sqrt(it.v * 10000) / 111320 / 2, w = h / Math.cos((it.y * Math.PI) / 180);
+      feats.push({ type: 'Feature', geometry: sq(it.x - w, it.y - h, it.x + w, it.y + h),
+        properties: { layer: l, v: it.v, cls: it.cls || '', x0: it.x - w, y0: it.y - h, x1: it.x + w, y1: it.y + h } });
+    }
+    return feats;
+  }
+  const c = r.cells;
+  const ref = percentile(c.list.map((q) => q.v), 0.97) || 1;
+  for (const q of c.list) {
+    const x0 = c.ox + q.x * c.cs, y0 = c.oy + q.y * c.cs;
+    feats.push({ type: 'Feature', geometry: sq(x0, y0, x0 + c.cs, y0 + c.cs),
+      properties: { layer: l, v: q.v, w: Math.min(1, q.v / ref), x0, y0, x1: x0 + c.cs, y1: y0 + c.cs } });
+  }
+  return feats;
+}
+
+// raio da mancha: cresce com o zoom e nunca fica menor que a célula do dado
+function heatRadius(cs, base) {
+  const stops = [];
+  for (const [z, px] of base) stops.push(z, Math.max(px, 1.3 * cs * pxPerDeg(z)));
+  return ['interpolate', ['linear'], ['zoom'], ...stops];
 }
 
 // ------------------------------------------------------------------ mapa
@@ -175,12 +197,36 @@ function outlineOpacity() {
   return ['interpolate', ['linear'], ['zoom'], 7, 0, 10, 0.75, 13, 0.95];
 }
 
+const HEAT = {
+  deforestation: ['interpolate', ['linear'], ['heatmap-density'],
+    0, 'rgba(243,195,74,0)', 0.15, 'rgba(140,80,14,0.28)', 0.4, 'rgba(214,150,40,0.62)',
+    0.7, 'rgba(243,195,74,0.86)', 1, 'rgba(255,224,140,0.95)'],
+  mining: ['interpolate', ['linear'], ['heatmap-density'],
+    0, 'rgba(31,200,180,0)', 0.15, 'rgba(8,96,88,0.35)', 0.4, 'rgba(22,166,150,0.68)',
+    0.7, 'rgba(31,200,180,0.9)', 1, 'rgba(150,246,228,0.96)'],
+};
+// células muito fracas não entram na mancha (viram névoa); entram na conta e aparecem de perto
+const HEAT_W = ['interpolate', ['linear'], ['get', 'w'], 0, 0, 0.06, 0, 1, 1];
+const HEAT_BASE = { deforestation: [[3, 4], [5, 7], [7, 12], [9, 22], [11, 40], [13, 90]],
+  mining: [[3, 3.5], [5, 6], [7, 10], [9, 16], [11, 22], [13, 40]] };
+// layers das camadas de terra (o timelapse esconde todas)
+const LAND_IDS = ['heat-deforestation', 'lyr-deforestation', 'heat-mining', 'areas-fill', 'areas-line', 'anm-fill', 'anm-lavra', 'anm-pedido',
+  'lyr-mining', 'lyr-mining-edge'];
+
 function applyPaint() {
-  const squareFill = ['+', 0.1, ['*', 0.85, ['get', 'w']]];
-  for (const l of ['deforestation', 'mining']) {
-    map.setPaintProperty(`lyr-${l}`, 'fill-opacity', fade(squareFill));
-    map.setPaintProperty(`lyr-${l}-edge`, 'line-opacity', outlineOpacity());
+  const sat = state.base !== 'dark';
+  for (const l of LAYERS) {
+    const n = NEAR[l];
+    map.setPaintProperty(`heat-${l}`, 'heatmap-opacity', ['interpolate', ['linear'], ['zoom'], n - 1, sat ? 0.9 : 0.95, n + 1, 0]);
   }
+  const n = NEAR.deforestation;
+  map.setPaintProperty('lyr-deforestation', 'fill-opacity', ['interpolate', ['linear'], ['zoom'],
+    n - 1, 0, n + 1, ['+', 0.12, ['*', sat ? 0.4 : 0.6, ['get', 'w']]], 13, ['+', 0.06, ['*', sat ? 0.22 : 0.5, ['get', 'w']]]]);
+  const m = NEAR.mining;
+  // sem lavra autorizada = cheio; com lavra autorizada = só o contorno
+  map.setPaintProperty('lyr-mining', 'fill-opacity', ['interpolate', ['linear'], ['zoom'],
+    m - 1, 0, m + 1, ['case', ['==', ['get', 'cls'], 'com'], 0, sat ? 0.6 : 0.75], 14, ['case', ['==', ['get', 'cls'], 'com'], 0, sat ? 0.35 : 0.6]]);
+  map.setPaintProperty('lyr-mining-edge', 'line-opacity', ['interpolate', ['linear'], ['zoom'], m - 1, 0, m + 1, 1]);
   map.setPaintProperty('radar-def-fill', 'fill-opacity', fade(['interpolate', ['linear'], ['get', 'score'], 40, 0, 100, 0.22]));
   map.setPaintProperty('radar-min-fill', 'fill-opacity', fade(['interpolate', ['linear'], ['get', 'score'], 15, 0.04, 80, 0.3]));
   map.setPaintProperty('radar-fronts', 'circle-opacity', fade(0.95));
@@ -188,13 +234,38 @@ function applyPaint() {
 }
 
 function addDataLayers() {
-  for (const l of ['deforestation', 'mining']) {
+  for (const l of LAYERS) {
+    map.addSource(`src-${l}-heat`, { type: 'geojson', data: EMPTY });
     map.addSource(`src-${l}`, { type: 'geojson', data: EMPTY });
-    map.addLayer({ id: `lyr-${l}`, type: 'fill', source: `src-${l}`,
-      paint: { 'fill-color': COLOR[l], 'fill-antialias': false } });
-    map.addLayer({ id: `lyr-${l}-edge`, type: 'line', source: `src-${l}`,
-      paint: { 'line-color': COLOR[l], 'line-width': 1 } });
   }
+  // de longe, mancha de calor; de perto, a área real
+  map.addLayer({ id: 'heat-deforestation', type: 'heatmap', source: 'src-deforestation-heat', maxzoom: NEAR.deforestation + 1.2,
+    paint: { 'heatmap-weight': HEAT_W, 'heatmap-color': HEAT.deforestation,
+      'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 3, 0.3, 5, 0.45, 7, 0.75, 9, 1.2] } });
+  map.addLayer({ id: 'lyr-deforestation', type: 'fill', source: 'src-deforestation', minzoom: NEAR.deforestation - 1.2,
+    paint: { 'fill-color': COLOR.deforestation, 'fill-antialias': false } });
+  map.addLayer({ id: 'heat-mining', type: 'heatmap', source: 'src-mining-heat', maxzoom: NEAR.mining + 1.2,
+    paint: { 'heatmap-weight': HEAT_W, 'heatmap-color': HEAT.mining,
+      'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 3, 0.35, 5, 0.55, 7, 0.9, 9, 1.4] } });
+  // autorização: terras indígenas e UCs de proteção integral, e os processos da ANM com garimpo dentro
+  map.addSource('src-areas', { type: 'geojson', data: EMPTY });
+  map.addSource('src-anm', { type: 'geojson', data: EMPTY });
+  map.addLayer({ id: 'areas-fill', type: 'fill', source: 'src-areas', minzoom: 5,
+    paint: { 'fill-color': COLOR.proibido, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.04, 10, 0.08] } });
+  map.addLayer({ id: 'areas-line', type: 'line', source: 'src-areas', minzoom: 5,
+    paint: { 'line-color': COLOR.proibido, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 1, 10, 2.2],
+      'line-dasharray': [3, 1.5], 'line-opacity': 0.9 } });
+  map.addLayer({ id: 'anm-fill', type: 'fill', source: 'src-anm', minzoom: 7, filter: ['==', ['get', 't'], 2],
+    paint: { 'fill-color': COLOR.lavra, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.1, 11, 0.16] } });
+  map.addLayer({ id: 'anm-pedido', type: 'line', source: 'src-anm', minzoom: 8, filter: ['==', ['get', 't'], 1],
+    paint: { 'line-color': COLOR.lavra, 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 12, 1],
+      'line-dasharray': [1, 2.5], 'line-opacity': ['interpolate', ['linear'], ['zoom'], 8, 0.2, 12, 0.45] } });
+  map.addLayer({ id: 'anm-lavra', type: 'line', source: 'src-anm', minzoom: 7, filter: ['==', ['get', 't'], 2],
+    paint: { 'line-color': COLOR.lavra, 'line-width': ['interpolate', ['linear'], ['zoom'], 7, 1, 11, 2], 'line-opacity': 0.95 } });
+  map.addLayer({ id: 'lyr-mining', type: 'fill', source: 'src-mining', minzoom: NEAR.mining - 1.2,
+    paint: { 'fill-color': COLOR.mining, 'fill-antialias': false } });
+  map.addLayer({ id: 'lyr-mining-edge', type: 'line', source: 'src-mining', minzoom: NEAR.mining - 1.2,
+    paint: { 'line-color': COLOR.mining, 'line-width': ['interpolate', ['linear'], ['zoom'], 9, 0.8, 13, 1.6] } });
   // radar
   map.addSource('src-radar-def', { type: 'geojson', data: EMPTY });
   map.addSource('src-radar-min', { type: 'geojson', data: EMPTY });
@@ -250,7 +321,7 @@ function addDataLayers() {
     map.on('mouseleave', id, () => airHover(null));
   }
 
-  for (const id of ['lyr-deforestation', 'lyr-mining', 'radar-def-fill', 'radar-min-fill', 'radar-fronts', 'air-hit', 'air-reg-hit', 'air-reg-hitdot']) {
+  for (const id of ['lyr-deforestation', 'lyr-mining', 'anm-fill', 'areas-fill', 'radar-def-fill', 'radar-min-fill', 'radar-fronts', 'air-hit', 'air-reg-hit', 'air-reg-hitdot']) {
     map.on('mouseenter', id, () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
   }
@@ -261,9 +332,26 @@ function addDataLayers() {
 function onMapClick(e) {
   const ids = state.mode === 'radar'
     ? ['radar-fronts', 'radar-min-fill', 'radar-def-fill']
-    : ['air-hit', 'air-reg-hit', 'air-reg-hitdot', 'lyr-mining', 'lyr-deforestation'];
+    : ['air-hit', 'air-reg-hit', 'air-reg-hitdot', 'lyr-mining', 'lyr-deforestation', 'anm-fill', 'areas-fill'];
   const feats = map.queryRenderedFeatures(e.point, { layers: ids.filter((i) => map.getLayer(i)) });
-  if (!feats.length) {
+  const f = feats[0];
+  if (f?.layer.id === 'air-hit') return airPopup(f.properties.i, e.lngLat);
+  if (f?.layer.id.startsWith('air-reg')) return airRegPopup(f.properties.i, e.lngLat);
+  let html = '';
+  if (f?.layer.id === 'radar-fronts') {
+    const p = f.properties, tipos = state.radar?.fronts_tipos || {};
+    html = `<h3>${esc(cap(tipos[p.tipo] || 'Abertura recente'))}</h3>
+      <div class="big">${haTxt(p.ha)}</div>derrubados até ${fmtDay(p.dia)}
+      <p class="fine">Chance prevista para a área: ${p.rd}% de desmatamento forte, ${p.rm}% de garimpo novo.</p>`;
+  } else if (f?.layer.id.startsWith('radar-')) {
+    const c = radarCellAt(e.lngLat);
+    html = `<h3>Previsão para ${state.radar.previsao_ano}</h3>
+      <p>Chance de perder 50 ha ou mais de floresta: <b>${c ? c.rd : 0}%</b><br>Chance de surgir garimpo novo: <b>${c ? c.rm : 0}%</b></p>
+      <p class="fine">Quadro de ~11 km.</p>`;
+  } else if (state.mode !== 'radar') {
+    html = landPopup(e, feats);
+  }
+  if (!html) {
     // clique num ponto vazio (de perto): coordenadas para copiar ou abrir no Google Maps,
     // por exemplo para apontar uma pista que o mapa ainda não marcou
     if (map.getZoom() >= 10) {
@@ -273,35 +361,109 @@ function onMapClick(e) {
     }
     return;
   }
-  const f = feats[0], p = f.properties;
-  if (f.layer.id === 'air-hit') return airPopup(p.i, e.lngLat);
-  if (f.layer.id.startsWith('air-reg')) return airRegPopup(p.i, e.lngLat);
-  let html = '';
-  if (f.layer.id === 'radar-fronts') {
-    const tipos = state.radar?.fronts_tipos || {};
-    html = `<h3>${esc(cap(tipos[p.tipo] || 'Abertura recente'))}</h3>
-      <div class="big">${haTxt(p.ha)}</div>derrubados até ${fmtDay(p.dia)}
-      <p class="fine">Chance prevista para a área: ${p.rd}% de desmatamento forte, ${p.rm}% de garimpo novo.</p>`;
-  } else if (f.layer.id.startsWith('radar-')) {
-    const c = radarCellAt(e.lngLat);
-    html = `<h3>Previsão para ${state.radar.previsao_ano}</h3>
-      <p>Chance de perder 50 ha ou mais de floresta: <b>${c ? c.rd : 0}%</b><br>Chance de surgir garimpo novo: <b>${c ? c.rm : 0}%</b></p>
-      <p class="fine">Quadro de ~11 km.</p>`;
-  } else if (p.layer === 'mining') {
-    html = `<h3>Garimpo novo</h3><div class="big">${haTxt(p.v)}</div>de área de garimpo detectada${legalPopup(p)}`;
-  } else {
-    html = `<h3>Floresta perdida</h3><div class="big">${haTxt(p.v)}</div>de floresta derrubada nesta área`;
+  if (f?.layer.id.startsWith('radar-')) {
+    const p = f.properties;
+    const kind = f.layer.id.startsWith('radar-min') || (f.layer.id === 'radar-fronts' && p.tipo === 1) ? 'mining' : 'deforestation';
+    html += `<button class="tl-open" data-kind="${kind}" data-lng="${e.lngLat.lng}" data-lat="${e.lngLat.lat}">Ver a evolução por satélite</button>`;
   }
-  if (!f.layer.id.startsWith('radar-')) {
-    const side = Math.round(p.cs * 111);
-    html += `<p class="fine">${esc(state.results[p.layer]?.note || '')}${p.cs ? `. Quadro de ~${side} km.` : ''}</p>`;
-  }
-  const kind = p.layer === 'mining' || f.layer.id.startsWith('radar-min') || (f.layer.id === 'radar-fronts' && p.tipo === 1) ? 'mining' : 'deforestation';
-  html += `<button class="tl-open" data-kind="${kind}" data-lng="${e.lngLat.lng}" data-lat="${e.lngLat.lat}">Ver a evolução por satélite</button>`;
   html += geoRow(e.lngLat.lng, e.lngLat.lat);
-  new maplibregl.Popup({ maxWidth: '260px' }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+  new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(e.lngLat).setHTML(html).addTo(map);
+}
+
+// Popup de terra: garimpo e desmatamento no trecho clicado (de longe, um raio de ~16 px; de perto, o quadro
+// clicado), com a situação na ANM, o processo e a área protegida embaixo do ponto.
+function landPopup(e, feats) {
+  const z = map.getZoom(), ll = e.lngLat;
+  const hit = (id) => feats.find((f) => f.layer.id === id);
+  const half = 16 / pxPerDeg(z);
+  const around = { x0: ll.lng - half, x1: ll.lng + half, y0: ll.lat - half, y1: ll.lat + half };
+  const fm = hit('lyr-mining'), fd = hit('lyr-deforestation');
+  const anm = feats.filter((f) => f.layer.id === 'anm-fill').concat(
+    map.getLayer('anm-pedido') && z >= 7 ? map.queryRenderedFeatures([[e.point.x - 1, e.point.y - 1], [e.point.x + 1, e.point.y + 1]], { layers: ['anm-pedido'] }) : []);
+  const inAnm = anmAt(ll);
+  const area = hit('areas-fill');
+  let out = '', kind = null, side = 0;
+  const r = state.results;
+  if (state.on.mining && r.mining?.shown) {
+    const box = fm ? fm.properties : z < NEAR.mining + 0.5 ? around : null;
+    const v = box ? sumItems(r.mining.shown, box) : 0;
+    if (v) {
+      side = (box.x1 - box.x0) * 111 * Math.cos((ll.lat * Math.PI) / 180);
+      const what = fm ? 'de área de garimpo neste quadro' : `de garimpo num raio de ~${fmtKm(side / 2)}`;
+      out += `<h3>Garimpo novo</h3><div class="big">${haTxt(v)}</div>${what}${legalPopup(box)}`;
+      out += `<p class="fine">${esc(r.mining.note || '')}.</p>`;
+      kind = 'mining';
+    }
+  }
+  if (!out && state.on.deforestation && r.deforestation?.cells) {
+    const box = fd ? fd.properties : z < NEAR.deforestation + 0.5 ? around : null;
+    const v = box ? sumCells(r.deforestation.cells, box) : 0;
+    if (v) {
+      side = (box.x1 - box.x0) * 111 * Math.cos((ll.lat * Math.PI) / 180);
+      out += `<h3>Floresta perdida</h3><div class="big">${haTxt(v)}</div>de floresta derrubada ${fd ? `neste quadro de ~${fmtKm(side)}` : `num raio de ~${fmtKm(side / 2)}`}`;
+      out += `<p class="fine">${esc(r.deforestation.note || '')}.</p>`;
+      kind = 'deforestation';
+    }
+  }
+  // processo da ANM e área protegida embaixo do ponto
+  const procs = inAnm.length ? inAnm : anm.map((f) => f.properties);
+  if (state.on.mining && procs.length) {
+    const top = procs.sort((a, b) => b.t - a.t).slice(0, 2);
+    out += `${out ? '' : '<h3>Processo na ANM</h3>'}<ul class="anm">${top.map((p) => `<li class="${p.t === 2 ? 'lavra' : 'pedido'}">
+      <b>${p.t === 2 ? 'Lavra autorizada' : 'Ainda sem lavra autorizada'}</b><br>${esc(p.f)}${p.s ? `, ${esc(p.s.toLowerCase())}` : ''}<br><span>processo ${esc(p.p)}</span></li>`).join('')}</ul>`;
+  }
+  if (state.on.mining && area) {
+    const a = area.properties;
+    out += `${out ? '' : `<h3>${esc(nomeArea(a.n))}</h3>`}<p class="proibido">${out ? `Dentro de ${esc(nomeArea(a.n))}: ` : ''}${a.a === 1 ? 'terra indígena' : 'unidade de conservação de proteção integral'}, onde garimpo é proibido.</p>`;
+  }
+  if (out && kind) out += `<button class="tl-open" data-kind="${kind}" data-lng="${ll.lng}" data-lat="${ll.lat}">Ver a evolução por satélite</button>`;
+  return out;
+}
+const fmtKm = (km) => (km >= 10 ? `${Math.round(km)} km` : km >= 1 ? `${nf.format(Math.round(km * 10) / 10)} km` : `${Math.round(km * 100) * 10} m`);
+const inBox = (x, y, b) => x >= b.x0 && x < b.x1 && y >= b.y0 && y < b.y1;
+function sumItems(items, b) {
+  let v = 0;
+  for (const it of items) if (inBox(it.x, it.y, b)) v += it.v;
+  return v;
+}
+function sumCells(c, b) {
+  let v = 0;
+  for (const q of c.list) {
+    const x = c.ox + (q.x + 0.5) * c.cs, y = c.oy + (q.y + 0.5) * c.cs;
+    if (inBox(x, y, b)) v += q.v;
+  }
+  return v;
+}
+// processos da ANM que contêm o ponto (mesmo com o mapa longe, quando os contornos não aparecem)
+function anmAt(ll) {
+  const out = [];
+  for (const f of state.anm?.features || []) {
+    const bb = f.bbox || (f.bbox = bboxOf(f.geometry));
+    if (ll.lng < bb[0] || ll.lng > bb[2] || ll.lat < bb[1] || ll.lat > bb[3]) continue;
+    const polys = f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
+    if (polys.some((rings) => inRing(ll.lng, ll.lat, rings[0]) && !rings.slice(1).some((h) => inRing(ll.lng, ll.lat, h)))) out.push(f.properties);
+  }
+  return out;
+}
+function bboxOf(g) {
+  const bb = [Infinity, Infinity, -Infinity, -Infinity];
+  const walk = (c) => { if (typeof c[0] === 'number') { bb[0] = Math.min(bb[0], c[0]); bb[1] = Math.min(bb[1], c[1]); bb[2] = Math.max(bb[2], c[0]); bb[3] = Math.max(bb[3], c[1]); } else c.forEach(walk); };
+  walk(g.coordinates);
+  return bb;
+}
+// contornos da ANM e das áreas protegidas: só baixa quando o garimpo está ligado
+async function loadLegalShapes() {
+  if (state.anm !== undefined || !state.legalDoc?.titulos_ok) return;
+  state.anm = null;
+  const [anm, areas] = await Promise.all([getJSON('mining/anm.json'), getJSON('mining/areas.json')]);
+  state.anm = anm;
+  if (anm) map.getSource('src-anm')?.setData(anm);
+  if (areas) map.getSource('src-areas')?.setData(areas);
+  $('#legal-key').hidden = false;
 }
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+// nomes do WDPA vêm com todas as palavras em maiúscula: "Área De Proteção Ambiental Do Tapajós"
+const nomeArea = (s) => String(s).replace(/ (D[aeo]s?|E) /g, (m) => m.toLowerCase());
 
 // latitude, longitude do ponto: copiar ou abrir no Google Maps (vista de satélite)
 function geoRow(lng, lat) {
@@ -384,7 +546,7 @@ async function miningData() {
   const want = legal ? state.legal : 'all';
   const cs = 0.02, out = new Map();
   let total = 0, count = 0;
-  const tally = { sem: 0, com: 0, prot: 0, all: 0 }, items = [];
+  const tally = { sem: 0, com: 0, prot: 0, all: 0 }, items = [], shown = [];
   for (let i = 0; i < d.length; i += 5) {
     if (!keep(d[i + 2])) continue;
     const v = d[i + 4];
@@ -393,15 +555,17 @@ async function miningData() {
     tally.all += v;
     if (cls) tally[cls] += v;
     if (L && (L.a === 1 || L.a === 2)) tally.prot += v;
-    items.push({ x: d[i] / 1000, y: d[i + 1] / 1000, v, L, cls });
+    const it = { x: d[i] / 1000, y: d[i + 1] / 1000, v, L, cls };
+    items.push(it);
     if (want !== 'all' && cls !== want) continue;
+    shown.push(it);
     total += v; count += 1;
     const x = Math.floor((d[i] / 1000 + 75) / cs), y = Math.floor((d[i + 1] / 1000 + 35) / cs);
     const k = x * 100000 + y;
     const cur = out.get(k);
     if (cur) cur.v += v; else out.set(k, { x, y, v });
   }
-  return { cells: { cs, ox: -75, oy: -35, list: [...out.values()], total }, total, count, note, period: lastP, items, tally,
+  return { cells: { cs, ox: -75, oy: -35, list: [...out.values()], total }, total, count, note, period: lastP, items, shown, tally,
     legalNote: legal ? legalSummary(tally) : '' };
 }
 
@@ -420,10 +584,11 @@ async function legalIndex() {
   $('#legal-opt').hidden = !state.on.mining;
   // sem os títulos da ANM só dá para dizer o que está em área protegida
   $('#legal').hidden = !doc.titulos_ok;
-  $('#legal-label').textContent = doc.titulos_ok ? 'Garimpo com autorização de lavra na ANM?' : 'Garimpo em área protegida';
+  $('#legal-label').textContent = doc.titulos_ok ? 'Autorização de lavra na ANM' : 'Garimpo em área protegida';
   if (!doc.titulos_ok) state.legal = 'all';
   return m;
 }
+// TI e UC de proteção integral contam como sem autorização mesmo com título na ANM (lá garimpo é proibido)
 const legalClass = (L) => (!L ? null : L.a === 1 || L.a === 2 ? 'sem' : L.t < 0 ? null : L.t < 2 ? 'sem' : 'com');
 const pct = (a, b) => (b ? `${Math.round((100 * a) / b)}%` : '0%');
 function legalSummary(t) {
@@ -435,11 +600,10 @@ function legalSummary(t) {
 function legalPopup(p) {
   const r = state.results.mining;
   if (!state.legalIdx || !r?.items) return '';
-  const x1 = p.x0 + p.cs, y1 = p.y0 + p.cs;
   let sem = 0, com = 0, semTit = 0, pedido = 0;
   const areas = new Map();
-  for (const it of r.items) {
-    if (it.x < p.x0 || it.x >= x1 || it.y < p.y0 || it.y >= y1 || !it.L) continue;
+  for (const it of r.shown) {
+    if (!inBox(it.x, it.y, p) || !it.L) continue;
     if (it.L.n) areas.set(it.L.n, { v: (areas.get(it.L.n)?.v || 0) + it.v, a: it.L.a });
     if (!state.legalDoc.titulos_ok) continue;
     if (it.cls === 'com') com += it.v; else if (it.cls === 'sem') sem += it.v;
@@ -449,10 +613,10 @@ function legalPopup(p) {
   if (!sem && !com && !areas.size) return '';
   const tops = [...areas.entries()].sort((a, b) => b[1].v - a[1].v).slice(0, 2);
   return `<ul class="legal">
-    ${sem ? `<li class="sem"><b>${haTxt(sem)}</b> sem autorização${semTit && pedido ? ` (${haTxt(semTit)} sem nenhum processo, ${haTxt(pedido)} só com pedido ou pesquisa)` : semTit ? ', sem nenhum processo na ANM' : pedido ? ', só com pedido ou pesquisa na ANM' : ''}</li>` : ''}
+    ${sem ? `<li class="sem"><b>${haTxt(sem)}</b> sem lavra autorizada${semTit && pedido ? ` (${haTxt(semTit)} sem título na ANM, ${haTxt(pedido)} só com pedido ou pesquisa)` : semTit ? ', sem título na ANM' : pedido ? ', só com pedido ou pesquisa na ANM' : ''}</li>` : ''}
     ${com ? `<li class="com"><b>${haTxt(com)}</b> com lavra autorizada na ANM</li>` : ''}
-    ${tops.map(([n, o]) => `<li class="area">${haTxt(o.v)} dentro de ${esc(n)}${o.a === 1 || o.a === 2 ? ', onde garimpo é proibido' : ''}</li>`).join('')}
-  </ul><p class="fine">${state.legalDoc.titulos_ok ? 'Autorização = concessão de lavra, lavra garimpeira, licenciamento ou registro de extração na ANM. A licença ambiental não é conferida.' : 'Os títulos da ANM ainda não foram carregados.'}</p>`;
+    ${tops.map(([n, o]) => `<li class="area">${haTxt(o.v)} dentro de ${esc(nomeArea(n))}${o.a === 1 || o.a === 2 ? ', onde garimpo é proibido' : ''}</li>`).join('')}
+  </ul>`;
 }
 
 function setLegal(v) {
@@ -674,23 +838,35 @@ function airRegPopup(i, ll) {
   new maplibregl.Popup({ maxWidth: '280px' }).setLngLat(ll).setHTML(html).addTo(map);
 }
 
-const LOADERS = { deforestation: deforestationData, mining: miningData };
-const SHAPE = { deforestation: 'square', mining: 'square' };
-const MIN_PX = { deforestation: 4, mining: 4 };
 
 // ------------------------------------------------------------------ desenho
+const LOADERS = { deforestation: deforestationData, mining: miningData };
+
 function drawLayer(l) {
   const r = state.results[l];
-  const src = map.getSource(`src-${l}`);
-  if (!src) return;
-  if (!r || state.mode === 'radar' || !state.on[l]) { src.setData(EMPTY); return; }
-  let feats = r.points || [];
-  if (r.cells) {
-    const f = factorFor(r.cells.cs, MIN_PX[l]);
-    state.factors[l] = f;
-    feats = toFeatures(r.cells, l, f, SHAPE[l]);
+  const heat = map.getSource(`src-${l}-heat`), near = map.getSource(`src-${l}`);
+  if (!heat) return;
+  state.nearDrawn[l] = false;
+  if (!r || state.mode === 'radar' || !state.on[l] || !(r.cells || r.shown)) { heat.setData(EMPTY); near.setData(EMPTY); return; }
+  heat.setData({ type: 'FeatureCollection', features: heatPoints(r, l) });
+  map.setPaintProperty(`heat-${l}`, 'heatmap-radius', heatRadius(l === 'mining' ? 0.0045 : r.cells.cs, HEAT_BASE[l]));
+  drawNear(l);
+}
+// a área real só é montada quando o mapa chega perto (são dezenas de milhares de quadros)
+function drawNear(l) {
+  const r = state.results[l];
+  if (state.nearDrawn[l] || !r || map.getZoom() < NEAR[l] - 1.3) return;
+  if (state.mode === 'radar' || !state.on[l] || !(r.cells || r.shown)) return;
+  state.nearDrawn[l] = true;
+  map.getSource(`src-${l}`).setData({ type: 'FeatureCollection', features: nearFeatures(r, l) });
+}
+function drawLegalShapes() {
+  const show = state.on.mining && state.mode !== 'radar' && state.legalDoc?.titulos_ok;
+  for (const id of ['areas-fill', 'areas-line', 'anm-fill', 'anm-lavra', 'anm-pedido']) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', show ? 'visible' : 'none');
   }
-  src.setData({ type: 'FeatureCollection', features: feats });
+  if (show) loadLegalShapes();
+  $('#legal-zoom').hidden = map.getZoom() >= 7;
 }
 
 async function render() {
@@ -700,6 +876,7 @@ async function render() {
     await renderRadar();
     if (seq !== state.renderSeq) return;
     LAYERS.forEach(drawLayer);
+    drawLegalShapes();
     drawAir();
     ENF.draw();
     $('#loading').hidden = true;
@@ -725,6 +902,7 @@ async function render() {
       if (state.legal !== 'all' && r.note) $('[data-note]', btn).textContent = `${r.note}, só ${state.legal === 'sem' ? 'sem' : 'com'} autorização`;
     }
   });
+  drawLegalShapes();
   writeLede();
   $('#loading').hidden = true;
   drawCharts();
@@ -1121,7 +1299,7 @@ async function openTimelapse(lng, lat, kind) {
   map.addLayer({ id: 'tl-mine', type: 'line', source: 'src-tl', paint: {
     'line-color': ['case', ['get', 'novo'], COLOR.clarao, COLOR.mining],
     'line-width': ['case', ['get', 'novo'], 2.4, 1.4], 'line-opacity': 0.9 } });
-  for (const l of LAYERS) for (const id of [`lyr-${l}`, `lyr-${l}-edge`]) map.setLayoutProperty(id, 'visibility', 'none');
+  for (const id of LAND_IDS) map.setLayoutProperty(id, 'visibility', 'none');
   for (const id of RADAR_IDS) map.setLayoutProperty(id, 'visibility', 'none');
   for (const m of state.pins) m.getElement().style.display = 'none';
   $$('.maplibregl-popup').forEach((el) => el.remove());
@@ -1249,7 +1427,8 @@ function closeTimelapse() {
     map.removeLayer(f.id);
     map.removeSource(f.id);
   }
-  for (const l of LAYERS) for (const id of [`lyr-${l}`, `lyr-${l}-edge`]) map.setLayoutProperty(id, 'visibility', 'visible');
+  for (const id of LAND_IDS) map.setLayoutProperty(id, 'visibility', 'visible');
+  drawLegalShapes();
   for (const id of RADAR_IDS) map.setLayoutProperty(id, 'visibility', 'visible');
   airDim(1);
   for (const m of state.pins) m.getElement().style.display = '';
@@ -1581,13 +1760,11 @@ function bind() {
     const closed = $('#rail').classList.toggle('closed');
     $('#sheet-handle').setAttribute('aria-expanded', String(!closed));
   });
-  // reagrega as células quando o zoom muda o tamanho mínimo visível
+  // a área real de cada camada só é montada quando o mapa chega perto
   map.on('moveend', checkCenterQuality);
   map.on('zoomend', () => {
-    for (const l of LAYERS) {
-      const r = state.results[l];
-      if (r?.cells && factorFor(r.cells.cs, MIN_PX[l]) !== state.factors[l]) drawLayer(l);
-    }
+    LAYERS.forEach(drawNear);
+    $('#legal-zoom').hidden = map.getZoom() >= 7;
     if (state.airZoom !== Math.round(map.getZoom() * 2) / 2) drawAir();
   });
   // parâmetros na URL: ?modo=history&ano=2019&fundo=sat
