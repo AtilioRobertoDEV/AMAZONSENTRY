@@ -1,0 +1,23 @@
+name: Dados · fiscalização (Ibama)
+
+on:
+  push:
+    branches: [main]
+    paths: ["pipeline/enforcement.py", ".github/workflows/data-enforcement.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - working-directory: pipeline
+        run: python enforcement.py probe
