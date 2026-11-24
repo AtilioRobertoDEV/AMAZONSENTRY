@@ -21,6 +21,7 @@ import datetime as dt
 import io
 import json
 import tempfile
+import time
 import unicodedata
 import zipfile
 from pathlib import Path
@@ -32,6 +33,8 @@ import common as C
 UFS = ["AC", "AM", "AP", "MA", "MT", "PA", "RO", "RR", "TO"]   # bacia amazônica no Brasil
 SIGMINE = ["https://app.anm.gov.br/dadosabertos/SIGMINE/PROCESSOS_MINERARIOS/{uf}.zip",
            "http://app.anm.gov.br/dadosabertos/SIGMINE/PROCESSOS_MINERARIOS/{uf}.zip"]
+# Serviço ArcGIS público da ANM com a mesma camada (processos ativos), paginado de 2000 em 2000.
+SIGMINE_API = "https://geo.anm.gov.br/arcgis/rest/services/SIGMINE/dados_anm/FeatureServer/0/query"
 # A ANM recusa conexões de fora do Brasil (os servidores do GitHub ficam nos EUA). Quando
 # não der para baixar, vale o que estiver em _cache/sigmine: o zip original da ANM
 # ({uf}.zip, posto lá à mão ou por outra máquina) ou a versão enxuta já processada.
@@ -134,15 +137,27 @@ def run_sigmine(xy, tree, tmp: Path):
                 break
             except Exception as e:  # noqa: BLE001
                 print(f"  ! SIGMINE {uf} indisponível em {url.split('/')[2]}: {str(e)[:120]}")
-        raw = cdir / f"{uf}.zip"
+        raw, rawj = cdir / f"{uf}.zip", cdir / f"{uf}.geojson"
+        feats = None
+        if z is None:
+            try:
+                api_geojson(uf, rawj)
+            except Exception as e:  # noqa: BLE001
+                print(f"  ! SIGMINE {uf} indisponível em geo.anm.gov.br: {str(e)[:120]}")
         if z is None and raw.exists():
             z, origem = raw.read_bytes(), "zip guardado"
         if z is not None:
             feats = list(shapes_in_zip(z))
+        elif rawj.exists():
+            # GeoJSON do serviço ArcGIS da ANM (geo.anm.gov.br), baixado de uma máquina no Brasil
+            feats = list(geojson_iter(rawj))
+            origem = "GeoJSON"
+        if feats is not None:
             shp_iter = iter(feats)
             # guarda só os processos perto de garimpo, simplificados, para as próximas vezes
             keep_compact(cdir / f"{uf}.json", xy, tree, feats)
             raw.unlink(missing_ok=True)
+            rawj.unlink(missing_ok=True)
             stamp = C.now_iso()
             C.write_json(cdir / f"{uf}.meta.json", {"em": stamp, "origem": origem})
         elif (cdir / f"{uf}.json").exists():
@@ -171,6 +186,40 @@ class _Shp:
         self.__geo_interface__ = g
         self.bbox = to_geom(g).bounds
         self.points = [0]
+
+
+def api_geojson(uf: str, dest: Path):
+    import requests
+
+    feats, off = [], 0
+    while True:
+        r = requests.get(SIGMINE_API, timeout=120, headers=C.UA, params={
+            "where": f"UF='{uf}'", "outFields": "OBJECTID,PROCESSO,FASE,UF,SUBS", "returnGeometry": "true",
+            "outSR": 4326, "maxAllowableOffset": 0.0002, "geometryPrecision": 5, "f": "geojson",
+            "orderByFields": "OBJECTID", "resultOffset": off, "resultRecordCount": 2000})
+        r.raise_for_status()
+        page = r.json().get("features") or []
+        feats += page
+        if len(page) < 2000:
+            break
+        off += len(page)
+        time.sleep(0.5)
+    if not feats:
+        raise RuntimeError("resposta vazia")
+    C.write_json(dest, {"type": "FeatureCollection", "features": feats})
+    print(f"  SIGMINE {uf}: {len(feats)} processos baixados de geo.anm.gov.br")
+
+
+def geojson_iter(path: Path):
+    for f in (C.read_json(path, {}) or {}).get("features", []):
+        g = f.get("geometry")
+        if not g or not g.get("coordinates"):
+            continue
+        try:
+            shp = _Shp(g)
+        except Exception:  # noqa: BLE001
+            continue
+        yield shp, {str(k).upper(): v for k, v in (f.get("properties") or {}).items()}
 
 
 def compact_iter(path: Path):
