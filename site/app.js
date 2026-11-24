@@ -1699,7 +1699,7 @@ function pickImage(key) {
     } else state.imgYear = y;
   }
   updateBase();
-  if (!wasSat) applyPaint();
+  if (!wasSat) { applyPaint(); ENF.paint(); }
   syncURL();
 }
 
