@@ -145,6 +145,14 @@ function nearFeatures(r, l) {
 }
 
 // raio da mancha: cresce com o zoom e nunca fica menor que a célula do dado
+// células grandes (histórico, 25 km) somam menos pontos por área: reforça; garimpo acumulado (muitos pontos): alivia
+const HEAT_I = { deforestation: [[3, 0.24], [5, 0.34], [7, 0.6], [9, 1]], mining: [[3, 1.4], [5, 1.6], [7, 1.8], [9, 2]] };
+function heatIntensity(l, r) {
+  const k = l === 'mining'
+    ? Math.min(1, Math.max(0.5, Math.sqrt(2500 / Math.max(1, r.shown.length))))
+    : Math.min(4, Math.max(1, (r.cells.cs / 0.1) ** 2));
+  return ['interpolate', ['linear'], ['zoom'], ...HEAT_I[l].flatMap(([z, v]) => [z, v * k])];
+}
 function heatRadius(cs, base) {
   const stops = [];
   for (const [z, px] of base) stops.push(z, Math.max(px, 1.3 * cs * pxPerDeg(z)));
@@ -904,6 +912,7 @@ function drawLayer(l) {
   if (!r || state.mode === 'radar' || !state.on[l] || !(r.cells || r.shown)) { heat.setData(EMPTY); near.setData(EMPTY); return; }
   heat.setData({ type: 'FeatureCollection', features: heatPoints(r, l) });
   map.setPaintProperty(`heat-${l}`, 'heatmap-radius', heatRadius(l === 'mining' ? 0.0045 : r.cells.cs, HEAT_BASE[l]));
+  map.setPaintProperty(`heat-${l}`, 'heatmap-intensity', heatIntensity(l, r));
   drawNear(l);
 }
 // a área real só é montada quando o mapa chega perto (são dezenas de milhares de quadros)
