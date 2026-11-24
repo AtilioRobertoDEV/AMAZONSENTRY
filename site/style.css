@@ -515,7 +515,7 @@ body.tl-on #timeline { display: none; }
 .enf-big b { font-size: 44px; line-height: .86; font-weight: 820; font-stretch: 112%; letter-spacing: -.03em; color: #0c6f64; }
 .enf-big p { margin: 0; font-size: 13px; line-height: 1.38; }
 .enf-key { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--tinta-2); margin: 6px 0 0; }
-.enf-key .ring { flex: none; width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid #0f8f81; }
+.enf-key .ring { flex: none; width: 13px; height: 13px; border-radius: 50%; border: 2px solid #fff1de; box-shadow: 0 0 0 1px #9c2f12, inset 0 0 0 1px #9c2f12; }
 #enf-ufs { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12.5px; }
 #enf-ufs li { display: grid; grid-template-columns: 26px 1fr 52px; align-items: center; gap: 8px; margin: 2px 0; }
 #enf-ufs b { font-weight: 700; }

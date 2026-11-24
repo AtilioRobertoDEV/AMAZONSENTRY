@@ -5,7 +5,7 @@
 'use strict';
 
 const ENF = (() => {
-  const BRASA = '#e2552b', TINTA = '#9c2f12', GAP = '#1fc8b4';
+  const BRASA = '#e2552b', TINTA = '#9c2f12', GAP = '#fff1de';
   const NS = 'http://www.w3.org/2000/svg';
   let heat = null, monthly = null, gaps = null, loading = null, ready = false;
 
@@ -49,7 +49,7 @@ const ENF = (() => {
     map.addLayer({ id: 'enf-gap', type: 'circle', source: 'src-enf-gap', paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, ['interpolate', ['linear'], ['get', 'ha'], 20, 4, 3000, 10],
         8, ['interpolate', ['linear'], ['get', 'ha'], 20, 14, 3000, 34]],
-      'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': GAP, 'circle-stroke-width': 1.5,
+      'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': GAP, 'circle-stroke-width': 1.6, 'circle-stroke-opacity': 0.95,
     } });
     map.on('mouseenter', 'enf-gap', () => { map.getCanvas().style.cursor = 'pointer'; });
     map.on('mouseleave', 'enf-gap', () => { map.getCanvas().style.cursor = ''; });
