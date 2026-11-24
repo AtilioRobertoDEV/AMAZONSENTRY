@@ -17,18 +17,40 @@ const ENF = (() => {
   const addMonths = (t, n) => { const k = Math.floor(t / 100) * 12 + (t % 100 - 1) + n; return Math.floor(k / 12) * 100 + (k % 12) + 1; };
 
   // período mostrado, conforme o modo do painel
+  // período mostrado, conforme o modo do painel. O dado do Ibama é mensal: 7 e 30 dias mostram o mês mais
+  // recente, 90 dias os três últimos meses.
   function period() {
-    const last = monthly?.months?.at(-1);
+    const last = monthly?.months?.at(-1), first = monthly?.months?.[0];
     if (!last) return null;
     if (state.mode === 'history') {
-      const y = state.year, a = y * 100 + 1, b = Math.min(y * 100 + 12, last);
-      return a > last ? null : { a, b, txt: `em ${y}` };
+      const y = state.year, b = Math.min(y * 100 + 12, last);
+      const a = state.cumulative ? first : y * 100 + 1;
+      if (a > last || b < first) return null;
+      return { a, b, txt: state.cumulative ? `de ${ymTxt(a)} a ${ymTxt(b)}` : `em ${y}` };
     }
     if (state.mode === 'year') {
       const y = Math.floor(last / 100);
       return { a: y * 100 + 1, b: last, txt: `em ${y}, até ${ymTxt(last)}` };
     }
-    return { a: addMonths(last, -11), b: last, txt: `de ${ymTxt(addMonths(last, -11))} a ${ymTxt(last)}` };
+    if (state.mode === 'quarter') {
+      const a = addMonths(last, -2);
+      return { a, b: last, txt: `de ${ymTxt(a)} a ${ymTxt(last)} (dado mensal)` };
+    }
+    return { a: last, b: last, txt: `em ${ymTxt(last)} (dado mensal, o mês mais recente)` };
+  }
+
+  // cores conforme o fundo: no satélite (escuro) a mancha clareia no centro; nos fundos claros ela escurece
+  const RAMP = {
+    dark: ['interpolate', ['linear'], ['heatmap-density'],
+      0, 'rgba(156,47,18,0)', 0.12, 'rgba(156,47,18,.55)', 0.35, BRASA, 0.65, '#ffb27a', 1, '#fff1de'],
+    light: ['interpolate', ['linear'], ['heatmap-density'],
+      0, 'rgba(226,85,43,0)', 0.12, 'rgba(226,85,43,.45)', 0.4, BRASA, 0.75, TINTA, 1, '#5a1606'],
+  };
+  function paint() {
+    if (!ready) return;
+    const dark = state.base === 'sat';
+    map.setPaintProperty('enf-heat', 'heatmap-color', RAMP[dark ? 'dark' : 'light']);
+    map.setPaintProperty('enf-gap', 'circle-stroke-color', dark ? GAP : '#2a1e12');
   }
 
   function setup() {
@@ -164,6 +186,7 @@ const ENF = (() => {
     map.getSource('src-enf').setData({ type: 'FeatureCollection', features: f.feats });
     map.getSource('src-enf-gap').setData({ type: 'FeatureCollection', features: gapFeatures() });
     for (const id of ['enf-heat', 'enf-gap']) map.setLayoutProperty(id, 'visibility', 'visible');
+    paint();
     $('[data-total]', btn).innerHTML = `${fmtInt(f.autos + f.emb)}<small>ações</small>`;
     $('[data-note]', btn).textContent = p ? `${fmtInt(f.autos)} autos de infração e ${fmtInt(f.emb)} embargos, ${p.txt}` : 'sem dados para este ano';
     panel(p);
@@ -179,5 +202,5 @@ const ENF = (() => {
     return `O Ibama lavrou <b>${fmtInt(f.autos)}</b> autos de infração e <b>${fmtInt(f.emb)}</b> embargos na Amazônia Legal ${p.txt}.`;
   }
 
-  return { draw, lede };
+  return { draw, lede, paint };
 })();

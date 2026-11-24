@@ -1679,6 +1679,7 @@ function setBase(b) {
   state.base = b;
   updateBase();
   applyPaint();
+  ENF.paint();
   syncURL();
 }
 
