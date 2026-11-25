@@ -42,7 +42,7 @@ const state = {
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
   playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
-  imgYear: null, follow: true, badYears: new Map(), legal: 'all', nearDrawn: {},
+  imgYear: null, follow: true, badYears: new Map(), legal: 'all', nearDrawn: {}, visual: 'calor',
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -274,6 +274,17 @@ function applyPaint() {
   map.setPaintProperty('anm-fill', 'fill-color', lavra);
   map.setPaintProperty('anm-lavra', 'line-color', lavra);
   map.setPaintProperty('anm-pedido', 'line-color', lavra);
+  dimSat();
+  if (VISUAL.on()) LAYERS.forEach(VISUAL.paint);
+}
+// nas propostas novas o satélite fica um pouco mais escuro e menos saturado, para os dados lerem sem brilho
+function dimSat() {
+  const dim = VISUAL.on();
+  for (const id of ['base-sat', ...TL_YEARS.map((y) => `base-s2-${y}`)]) {
+    if (!map.getLayer(id)) continue;
+    map.setPaintProperty(id, 'raster-brightness-max', dim ? 0.72 : 1);
+    map.setPaintProperty(id, 'raster-saturation', dim ? -0.4 : 0);
+  }
 }
 
 function addDataLayers() {
@@ -369,6 +380,7 @@ function addDataLayers() {
     map.on('mouseleave', id, () => { map.getCanvas().style.cursor = ''; });
   }
   map.on('click', onMapClick);
+  VISUAL.addLayers((l) => (l === 'mining' ? 'areas-fill' : 'lyr-deforestation'));
   applyPaint();
 }
 
@@ -909,8 +921,9 @@ function drawLayer(l) {
   const heat = map.getSource(`src-${l}-heat`), near = map.getSource(`src-${l}`);
   if (!heat) return;
   state.nearDrawn[l] = false;
-  if (!r || state.mode === 'radar' || !state.on[l] || !(r.cells || r.shown)) { heat.setData(EMPTY); near.setData(EMPTY); return; }
-  heat.setData({ type: 'FeatureCollection', features: heatPoints(r, l) });
+  if (!r || state.mode === 'radar' || !state.on[l] || !(r.cells || r.shown)) { heat.setData(EMPTY); near.setData(EMPTY); VISUAL.draw(l, null); return; }
+  VISUAL.draw(l, VISUAL.on() ? r : null);
+  heat.setData(VISUAL.on() ? EMPTY : { type: 'FeatureCollection', features: heatPoints(r, l) });
   map.setPaintProperty(`heat-${l}`, 'heatmap-radius', heatRadius(l === 'mining' ? 0.0045 : r.cells.cs, HEAT_BASE[l]));
   map.setPaintProperty(`heat-${l}`, 'heatmap-intensity', heatIntensity(l, r));
   drawNear(l);
@@ -1621,6 +1634,7 @@ function syncURL() {
   if (state.base !== 'sat') q.set('fundo', state.base);
   else if (state.mode !== 'history' && state.imgYear) q.set('imagem', state.imgYear);
   if (state.legal !== 'all') q.set('autorizacao', state.legal);
+  if (state.visual !== 'calor') q.set('visual', state.visual);
   const s = q.toString();
   history.replaceState(null, '', s ? `?${s}` : location.pathname);
 }
@@ -1658,6 +1672,7 @@ function updateBase() {
   if (s2 && !map.getLayer(`base-s2-${img.key}`)) {
     map.addSource(`s2-${img.key}`, RASTER([eoxUrl(img.key)], 'Sentinel-2 cloudless © <a href="https://s2maps.eu">EOX</a> (dados Copernicus)', 15));
     map.addLayer({ id: `base-s2-${img.key}`, type: 'raster', source: `s2-${img.key}` }, 'fora-fill');
+    dimSat();
   }
   for (const y of TL_YEARS) if (map.getLayer(`base-s2-${y}`)) map.setLayoutProperty(`base-s2-${y}`, 'visibility', img.key === y ? 'visible' : 'none');
   const vis = (id, on) => map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none');
@@ -1845,9 +1860,11 @@ function bind() {
     LAYERS.forEach(drawNear);
     $('#legal-zoom').hidden = map.getZoom() >= 7;
     if (state.airZoom !== Math.round(map.getZoom() * 2) / 2) drawAir();
+    VISUAL.zoomed();
   });
   // parâmetros na URL: ?modo=history&ano=2019&fundo=sat
   const q = new URLSearchParams(location.search);
+  if (VISUAL.KINDS.includes(q.get('visual'))) { state.visual = q.get('visual'); applyPaint(); }
   const ver = (q.get('ver') || '').split(',').filter((v) => Object.values(VER).includes(v));
   if (ver.length) {
     for (const [l, name] of Object.entries(VER)) state.on[l] = ver.includes(name);
