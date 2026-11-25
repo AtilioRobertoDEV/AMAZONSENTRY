@@ -2,9 +2,10 @@
 // ?visual=hex      grade de hexágonos com cor em degraus
 // ?visual=contorno curvas de nível da pressão (como um mapa topográfico)
 // ?visual=pontos   cada ponto vale uma área fixa (densidade de pontos)
+// ?visual=misto    curvas de nível de longe, pontos de perto
 // sem parâmetro: mapa de calor (atual)
 const VISUAL = (() => {
-  const KINDS = ['calor', 'hex', 'contorno', 'pontos'];
+  const KINDS = ['calor', 'hex', 'contorno', 'pontos', 'misto'];
   // degraus de cor: no satélite, tons médios (sem brilho de neon); no mapa claro, escurecem
   const STEPS = {
     sat: {
@@ -130,23 +131,32 @@ const VISUAL = (() => {
     const color = stepExpr(l, 'k', c);
     // o garimpo some no zoom em que aparecem os quadros reais
     const fadeOut = (v) => (l === 'mining' ? ['interpolate', ['linear'], ['zoom'], NEAR.mining - 1, v, NEAR.mining + 1, 0] : v);
+    // misto: as curvas saem e os pontos entram entre os zooms 5,5 e 7
+    // (um só interpolate por zoom: o MapLibre não aceita um dentro do outro)
+    const m = NEAR.mining;
+    const away = (v) => (k !== 'misto' ? fadeOut(v) : ['interpolate', ['linear'], ['zoom'], 5.5, v, 7, 0]);
+    const near = (v) => (k !== 'misto' ? fadeOut(v) : l === 'mining'
+      ? ['interpolate', ['linear'], ['zoom'], 5.5, 0, 7, v, m - 1, v, m + 1, 0]
+      : ['interpolate', ['linear'], ['zoom'], 5.5, 0, 7, v]);
     if (k === 'hex') {
       map.setPaintProperty(`alt-${l}-fill`, 'fill-color', color);
       map.setPaintProperty(`alt-${l}-fill`, 'fill-opacity', fadeOut(stepExpr(l, 'k', OP.hex)));
       map.setPaintProperty(`alt-${l}-line`, 'line-color', sat ? 'rgba(20,14,8,0.35)' : 'rgba(255,255,255,0.5)');
       map.setPaintProperty(`alt-${l}-line`, 'line-width', 0);
-    } else if (k === 'contorno') {
+    }
+    if (k === 'contorno' || k === 'misto') {
       map.setPaintProperty(`alt-${l}-fill`, 'fill-color', color);
-      map.setPaintProperty(`alt-${l}-fill`, 'fill-opacity', fadeOut(stepExpr(l, 'k', OP.contorno)));
+      map.setPaintProperty(`alt-${l}-fill`, 'fill-opacity', away(stepExpr(l, 'k', OP.contorno)));
       map.setPaintProperty(`alt-${l}-line`, 'line-color', color);
       map.setPaintProperty(`alt-${l}-line`, 'line-width', ['interpolate', ['linear'], ['zoom'], 3, ['match', ['get', 'k'], 0, 0.6, 1.1], 8, ['match', ['get', 'k'], 0, 1, 1.8]]);
-      map.setPaintProperty(`alt-${l}-line`, 'line-opacity', fadeOut(0.95));
-    } else if (k === 'pontos') {
+      map.setPaintProperty(`alt-${l}-line`, 'line-opacity', away(0.95));
+    }
+    if (k === 'pontos' || k === 'misto') {
       map.setPaintProperty(`alt-${l}-dot`, 'circle-color', c[l === 'mining' ? 4 : 3]);
       map.setPaintProperty(`alt-${l}-dot`, 'circle-radius', l === 'mining'
         ? ['interpolate', ['linear'], ['zoom'], 3, 1.5, 6, 2, 9, 2.8, 12, 3.6]
         : ['interpolate', ['linear'], ['zoom'], 3, 1.1, 6, 1.6, 9, 2.4, 12, 3.2]);
-      map.setPaintProperty(`alt-${l}-dot`, 'circle-opacity', fadeOut(0.9));
+      map.setPaintProperty(`alt-${l}-dot`, 'circle-opacity', near(0.9));
       map.setPaintProperty(`alt-${l}-dot`, 'circle-stroke-width', 0);
     }
   }
@@ -156,7 +166,8 @@ const VISUAL = (() => {
     if (!src) return;
     if (!on() || !r) { src.setData(EMPTY); return; }
     const k = kind();
-    const feats = k === 'hex' ? hexFeatures(r, l) : k === 'contorno' ? contourFeatures(r, l) : dotFeatures(r, l);
+    const feats = k === 'hex' ? hexFeatures(r, l) : k === 'contorno' ? contourFeatures(r, l)
+      : k === 'pontos' ? dotFeatures(r, l) : contourFeatures(r, l).concat(dotFeatures(r, l));
     src.setData({ type: 'FeatureCollection', features: feats });
     paint(l);
     hexBand = Math.round(map.getZoom());
