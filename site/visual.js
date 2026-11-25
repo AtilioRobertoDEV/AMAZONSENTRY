@@ -3,7 +3,8 @@
 // ?visual=contorno curvas de nível da pressão (como um mapa topográfico)
 // ?visual=pontos   cada ponto vale uma área fixa (densidade de pontos)
 // ?visual=misto    curvas de nível de longe, pontos de perto
-// sem parâmetro: mapa de calor (atual)
+// ?visual=calor    mapa de calor antigo
+// sem parâmetro: misto (padrão desde 25/11/2026)
 const VISUAL = (() => {
   const KINDS = ['calor', 'hex', 'contorno', 'pontos', 'misto'];
   // degraus de cor: no satélite, tons médios (sem brilho de neon); no mapa claro, escurecem
@@ -21,7 +22,7 @@ const VISUAL = (() => {
   let hexBand = null;
   const cache = {};
 
-  const kind = () => state.visual || 'calor';
+  const kind = () => state.visual || 'misto';
   const on = () => kind() !== 'calor';
   const pal = (l) => STEPS[state.base === 'sat' ? 'sat' : 'light'][l];
   const stepExpr = (l, prop, vals) => ['match', ['get', 'k'], ...vals.flatMap((v, i) => [i, v]), vals[0]];
@@ -127,6 +128,7 @@ const VISUAL = (() => {
   }
 
   function paint(l) {
+    legend(l);
     const k = kind(), c = pal(l), sat = state.base === 'sat';
     const color = stepExpr(l, 'k', c);
     // o garimpo some no zoom em que aparecem os quadros reais
@@ -171,6 +173,19 @@ const VISUAL = (() => {
     src.setData({ type: 'FeatureCollection', features: feats });
     paint(l);
     hexBand = Math.round(map.getZoom());
+  }
+
+  // a legenda do painel acompanha: degraus de cor e quanto vale cada ponto
+  function legend(l) {
+    const box = document.querySelector(`[data-row="${l}"] .ramp`);
+    if (!box) return;
+    const [bar, lo, hi] = [box.querySelector('i'), ...box.querySelectorAll('span')];
+    if (!on()) { bar.style.background = ''; lo.textContent = 'pouco'; hi.textContent = 'muito'; return; }
+    const c = pal(l), n = c.length;
+    bar.style.background = `linear-gradient(90deg, ${c.map((v, i) => `${v} ${(i / n) * 100}% ${((i + 1) / n) * 100}%`).join(', ')})`;
+    const per = cache[l + 'per'];
+    lo.textContent = per && (kind() === 'pontos' || kind() === 'misto') ? `de perto, 1 ponto = ${fmtInt(per)} ha` : 'pouco';
+    hi.textContent = 'mais concentrado';
   }
 
   function zoomed() {

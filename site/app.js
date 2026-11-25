@@ -42,7 +42,7 @@ const state = {
   radarOn: { risk_def: true, risk_min: true, fronts: true },
   manifest: {}, stats: {}, radar: null, results: {}, factors: {},
   playing: null, renderSeq: 0, pins: [], estados: null, tl: null,
-  imgYear: null, follow: true, badYears: new Map(), legal: 'all', nearDrawn: {}, visual: 'calor',
+  imgYear: null, follow: true, badYears: new Map(), legal: 'all', nearDrawn: {}, visual: 'misto',
 };
 
 // ------------------------------------------------------------------ utilidades
@@ -1634,7 +1634,7 @@ function syncURL() {
   if (state.base !== 'sat') q.set('fundo', state.base);
   else if (state.mode !== 'history' && state.imgYear) q.set('imagem', state.imgYear);
   if (state.legal !== 'all') q.set('autorizacao', state.legal);
-  if (state.visual !== 'calor') q.set('visual', state.visual);
+  if (state.visual !== 'misto') q.set('visual', state.visual);
   const s = q.toString();
   history.replaceState(null, '', s ? `?${s}` : location.pathname);
 }
