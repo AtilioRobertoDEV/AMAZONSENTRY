@@ -133,10 +133,11 @@ const VISUAL = (() => {
     const color = stepExpr(l, 'k', c);
     // o garimpo some no zoom em que aparecem os quadros reais
     const fadeOut = (v) => (l === 'mining' ? ['interpolate', ['linear'], ['zoom'], NEAR.mining - 1, v, NEAR.mining + 1, 0] : v);
-    // misto: as curvas saem e os pontos entram entre os zooms 5,5 e 7
+    // misto: os pontos entram entre os zooms 5,5 e 7
     // (um só interpolate por zoom: o MapLibre não aceita um dentro do outro)
     const m = NEAR.mining;
-    const away = (v) => (k !== 'misto' ? fadeOut(v) : ['interpolate', ['linear'], ['zoom'], 5.5, v, 7, 0]);
+    // a área das curvas fica inteira até a escala de ~30 km e some até ~20 km (zoom 7,6 a 8,4)
+    const away = (v) => (k !== 'misto' ? fadeOut(v) : ['interpolate', ['linear'], ['zoom'], 7.6, v, 8.4, 0]);
     const near = (v) => (k !== 'misto' ? fadeOut(v) : l === 'mining'
       ? ['interpolate', ['linear'], ['zoom'], 5.5, 0, 7, v, m - 0.4, v, m + 0.6, 0]
       : ['interpolate', ['linear'], ['zoom'], 5.5, 0, 7, v]);
