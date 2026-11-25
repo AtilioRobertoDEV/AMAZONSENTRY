@@ -138,7 +138,7 @@ const VISUAL = (() => {
     const m = NEAR.mining;
     const away = (v) => (k !== 'misto' ? fadeOut(v) : ['interpolate', ['linear'], ['zoom'], 5.5, v, 7, 0]);
     const near = (v) => (k !== 'misto' ? fadeOut(v) : l === 'mining'
-      ? ['interpolate', ['linear'], ['zoom'], 5.5, 0, 7, v, m - 1, v, m + 1, 0]
+      ? ['interpolate', ['linear'], ['zoom'], 5.5, 0, 7, v, m - 0.4, v, m + 0.6, 0]
       : ['interpolate', ['linear'], ['zoom'], 5.5, 0, 7, v]);
     if (k === 'hex') {
       map.setPaintProperty(`alt-${l}-fill`, 'fill-color', color);

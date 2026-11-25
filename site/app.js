@@ -101,7 +101,8 @@ function percentile(arr, p) {
 }
 
 const pxPerDeg = (z) => (256 * 2 ** z) / 360;
-const NEAR = { deforestation: 9.5, mining: 9 };     // zoom em que a mancha dá lugar à área real
+// zoom em que a mancha/os pontos dão lugar à área real; garimpo: ponto até a escala de ~10 km (pedido do Atílio)
+const NEAR = { deforestation: 9.5, mining: 10.2 };
 
 /** Células ou detecções -> pontos da mancha de calor (peso 0..1 pelo percentil 97). */
 function heatPoints(r, l) {
